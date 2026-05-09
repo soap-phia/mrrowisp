@@ -139,12 +139,22 @@ class WispBuilderImpl implements WispBuilder {
 	}
 
 	blacklist(hostnames: string[]): WispBuilder {
-		this.config.blacklist = { hostnames };
+		this.config.blacklist = { ...this.config.blacklist, hostnames };
 		return this;
 	}
 
 	whitelist(hostnames: string[]): WispBuilder {
-		this.config.whitelist = { hostnames };
+		this.config.whitelist = { ...this.config.whitelist, hostnames };
+		return this;
+	}
+
+	blacklistPorts(ports: number[]): WispBuilder {
+		this.config.blacklist = { ...this.config.blacklist, ports };
+		return this;
+	}
+
+	whitelistPorts(ports: number[]): WispBuilder {
+		this.config.whitelist = { ...this.config.whitelist, ports };
 		return this;
 	}
 

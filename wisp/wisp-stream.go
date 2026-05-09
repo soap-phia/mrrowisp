@@ -47,6 +47,18 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 		}
 	}
 
+	if len(cfg.Whitelist.Ports) > 0 {
+		if _, ok := cfg.Whitelist.Ports[port]; !ok {
+			s.close(closeReasonBlocked)
+			return
+		}
+	} else if len(cfg.Blacklist.Ports) > 0 {
+		if _, ok := cfg.Blacklist.Ports[port]; ok {
+			s.close(closeReasonBlocked)
+			return
+		}
+	}
+
 	resolvedHostname := hostname
 	if cfg.DNSCache != nil {
 		if _, whitelisted := cfg.Whitelist.Hostnames[hostname]; !whitelisted {

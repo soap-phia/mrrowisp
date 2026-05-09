@@ -14,6 +14,7 @@ so quick story abt how this was made, this was the initial project, then amplify
 - Twisp (terminal over wisp) support for remote shell access
 - Password and Ed25519 certificate authentication (v2)
 - Hostname blacklist/whitelist filtering
+- Port blacklist/whitelist filtering
 - SOCKS5 proxy support for upstream connections
 - Custom DNS server with caching
 - WebSocket permessage-deflate compression
@@ -62,6 +63,7 @@ const server = await createMrrowisp()
 	.twisp(true)
 	.motd("mrrow merp purr :3")
 	.blacklist(["truthsocial.com"]) // idk i'd block this
+	.whitelistPorts([80, 443])
 	.dns(["8.8.8.8","1.1.1.1"])
 	.start();
 ```
@@ -148,6 +150,8 @@ server.kill("SIGTERM");
 | `motd(message)`        | Set message of the day             |
 | `blacklist(hostnames)` | Set blocked hostnames              |
 | `whitelist(hostnames)` | Set whitelisted hostnames          |
+| `blacklistPorts(ports)` | Set blocked destination ports     |
+| `whitelistPorts(ports)` | Set whitelisted destination ports |
 | `proxy(url)`           | Set SOCKS5 proxy address           |
 | `dns(server)`          | Set custom DNS server              |
 | `onReady(cb)`          | Callback when server starts        |
@@ -189,10 +193,12 @@ Copy `example.config.json` to `config.json` and edit as needed:
 	"tcpNoDelay": true,
 	"websocketTcpNoDelay": true,
 	"blacklist": {
-		"hostnames": []
+		"hostnames": [],
+		"ports": []
 	},
 	"whitelist": {
-		"hostnames": []
+		"hostnames": [],
+		"ports": []
 	},
 	"proxy": "",
 	"websocketPermessageDeflate": false,
@@ -222,6 +228,8 @@ Copy `example.config.json` to `config.json` and edit as needed:
 | `websocketTcpNoDelay`        | bool     | Enable TCP_NODELAY on WebSocket connections   |
 | `blacklist.hostnames`        | []string | Hostnames to block                            |
 | `whitelist.hostnames`        | []string | Hostnames to bypass DNS resolution            |
+| `blacklist.ports`            | []int    | Destination ports to block                    |
+| `whitelist.ports`            | []int    | Destination ports to allow                    |
 | `proxy`                      | string   | SOCKS5 proxy address (e.g., `127.0.0.1:1080`) |
 | `websocketPermessageDeflate` | bool     | Enable WebSocket compression                  |
 | `dnsServer`                  | string   | Custom DNS server (e.g., `8.8.8.8:53`)        |

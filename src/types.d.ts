@@ -9,9 +9,11 @@ export type Config = {
 	websocketTcpNoDelay?: boolean;
 	blacklist?: {
 		hostnames: string[];
+		ports?: number[];
 	};
 	whitelist?: {
 		hostnames: string[];
+		ports?: number[];
 	};
 	proxy?: string;
 	websocketPermessageDeflate?: boolean;
@@ -59,6 +61,8 @@ export type WispBuilder = {
 	motd(message: string): WispBuilder;
 	blacklist(hostnames: string[]): WispBuilder;
 	whitelist(hostnames: string[]): WispBuilder;
+	blacklistPorts(ports: number[]): WispBuilder;
+	whitelistPorts(ports: number[]): WispBuilder;
 	proxy(url: string): WispBuilder;
 	dns(servers: string | string[]): WispBuilder;
 	route(req: IncomingMessage, socket: Socket, head: Buffer): void;

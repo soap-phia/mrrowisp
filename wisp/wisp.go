@@ -20,9 +20,11 @@ type Config struct {
 
 	Blacklist struct {
 		Hostnames map[string]struct{}
+		Ports     map[string]struct{}
 	}
 	Whitelist struct {
 		Hostnames map[string]struct{}
+		Ports     map[string]struct{}
 	}
 
 	Proxy                      string

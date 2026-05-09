@@ -6,10 +6,12 @@
 	"tcpNoDelay": true,
 	"websocketTcpNoDelay": true,
 	"blacklist": {
-		"hostnames": []
+		"hostnames": [],
+		"ports": []
 	},
 	"whitelist": {
-		"hostnames": []
+		"hostnames": [],
+		"ports": []
 	},
 	"proxy": "",
 	"websocketPermessageDeflate": false,

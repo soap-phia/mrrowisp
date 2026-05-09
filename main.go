@@ -23,9 +23,11 @@ type Config struct {
 
 	Blacklist struct {
 		Hostnames []string `json:"hostnames"`
+		Ports     []int    `json:"ports"`
 	} `json:"blacklist"`
 	Whitelist struct {
 		Hostnames []string `json:"hostnames"`
+		Ports     []int    `json:"ports"`
 	} `json:"whitelist"`
 
 	Proxy                      string   `json:"proxy"`
@@ -95,10 +97,18 @@ func createWispConfig(cfg Config) *wisp.Config {
 	for _, host := range cfg.Blacklist.Hostnames {
 		blacklistedHostnames[host] = struct{}{}
 	}
+	blacklistedPorts := make(map[string]struct{})
+	for _, port := range cfg.Blacklist.Ports {
+		blacklistedPorts[fmt.Sprintf("%d", port)] = struct{}{}
+	}
 
 	whitelistedHostnames := make(map[string]struct{})
 	for _, host := range cfg.Whitelist.Hostnames {
 		whitelistedHostnames[host] = struct{}{}
+	}
+	whitelistedPorts := make(map[string]struct{})
+	for _, port := range cfg.Whitelist.Ports {
+		whitelistedPorts[fmt.Sprintf("%d", port)] = struct{}{}
 	}
 
 	var pubKeys []ed25519.PublicKey
@@ -123,13 +133,17 @@ func createWispConfig(cfg Config) *wisp.Config {
 		WebsocketTcpNoDelay:   cfg.WebsocketTcpNoDelay,
 		Blacklist: struct {
 			Hostnames map[string]struct{}
+			Ports     map[string]struct{}
 		}{
 			Hostnames: blacklistedHostnames,
+			Ports:     blacklistedPorts,
 		},
 		Whitelist: struct {
 			Hostnames map[string]struct{}
+			Ports     map[string]struct{}
 		}{
 			Hostnames: whitelistedHostnames,
+			Ports:     whitelistedPorts,
 		},
 		Proxy:                      cfg.Proxy,
 		WebsocketPermessageDeflate: cfg.WebsocketPermessageDeflate,
