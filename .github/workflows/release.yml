@@ -53,7 +53,7 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-        run: go build -v -o "mrrowisp${{ matrix.ext }}" main.go
+        run: go build -v -o "mrrowisp-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}" main.go
 
       - uses: actions/setup-node@v4
         with:
@@ -81,7 +81,7 @@ jobs:
         with:
           name: mrrowisp-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
-            mrrowisp${{ matrix.ext }}
+            mrrowisp-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
 
       - name: Upload npm package
         uses: actions/upload-artifact@v4
