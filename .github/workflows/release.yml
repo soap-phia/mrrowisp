@@ -60,7 +60,7 @@ jobs:
           node-version: "20"
 
       - name: Install TS deps
-        run: npm ci
+        run: npm i
 
       - name: Build TypeScript
         run: npx tsc
