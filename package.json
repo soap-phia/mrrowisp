@@ -1,6 +1,6 @@
 {
 	"name": "mrrowisp",
-	"version": "2.0.0",
+	"version": "2.0.1",
 	"module": "index.ts",
 	"type": "module",
 	"author": "soap-phia",
@@ -20,7 +20,7 @@
 		"ws": "^8.20.0"
 	},
 	"scripts": {
-		"build:ts": "tsc && cp ./example.config.json ./dist/config.json",
+		"build:ts": "tsc && cp ./example.config.json ./dist/config.json && cp ./LICENSE ./package.json ./README.md ./dist/",
 		"build:bin": "bash build.sh",
 		"build": "bun run build:ts && bun run build:bin"
 	}

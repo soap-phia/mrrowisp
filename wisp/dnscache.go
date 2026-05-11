@@ -43,7 +43,33 @@ func NewDNSCache(cfg DNSCacheConfig) *DNSCache {
 		cache:       make(map[string]dnsEntry),
 	}
 	cache.initResolver(cfg.Method)
+	cache.cleanup()
 	return cache
+}
+
+func (d *DNSCache) cleanup() {
+	interval := d.ttl / 2
+	if interval < time.Minute {
+		interval = time.Minute
+	}
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for range ticker.C {
+			d.expire()
+		}
+	}()
+}
+
+func (d *DNSCache) expire() {
+	now := time.Now()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for host, entry := range d.cache {
+		if now.After(entry.expiresAt) {
+			delete(d.cache, host)
+		}
+	}
 }
 
 func (d *DNSCache) initResolver(method string) {
