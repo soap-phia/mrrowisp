@@ -58,22 +58,5 @@ func isPrivateIP(ip net.IP) bool {
 	if ip == nil {
 		return false
 	}
-	ip4 := ip.To4()
-	if ip4 != nil {
-		switch {
-		case ip4[0] == 10:
-			return true
-		case ip4[0] == 172 && ip4[1] >= 16 && ip4[1] <= 31:
-			return true
-		case ip4[0] == 192 && ip4[1] == 168:
-			return true
-		case ip4[0] == 169 && ip4[1] == 254:
-			return true
-		}
-	}
-
-	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-		return true
-	}
-	return false
+	return ip.IsPrivate()
 }

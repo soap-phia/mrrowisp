@@ -130,13 +130,6 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 
 	c.config.Logger.Debug("creating stream", "ip", c.remoteIP, "streamId", streamId, "hostname", hostname, "port", port, "type", streamType)
 
-	if c.config.StreamLimiter != nil {
-		if !c.config.StreamLimiter.allow(strings.ToLower(strings.TrimSpace(hostname)), c.config.StreamLimitPerHost, c.config.StreamLimitTotal) {
-			c.config.Logger.Warn("stream limit reached", "ip", c.remoteIP, "hostname", hostname)
-			c.sendClosePacket(streamId, closeReasonThrottled)
-			return
-		}
-	}
 	if !c.connectLimiter.allow() {
 		c.config.Logger.Warn("connect rate limit exceeded", "ip", c.remoteIP)
 		c.sendClosePacket(streamId, closeReasonThrottled)
@@ -163,6 +156,14 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 		return
 	}
 
+	if c.config.StreamLimiter != nil {
+		if !c.config.StreamLimiter.allow(strings.ToLower(strings.TrimSpace(hostname)), c.config.StreamLimitPerHost, c.config.StreamLimitTotal) {
+			c.config.Logger.Warn("stream limit reached", "ip", c.remoteIP, "hostname", hostname)
+			c.sendClosePacket(streamId, closeReasonThrottled)
+			return
+		}
+	}
+
 	stream := &wispStream{
 		wispConn:  c,
 		streamId:  streamId,
@@ -172,6 +173,9 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 	stream.isOpen.Store(true)
 
 	if _, loaded := c.streams.LoadOrStore(streamId, stream); loaded {
+		if c.config.StreamLimiter != nil {
+			c.config.StreamLimiter.release(stream.hostname)
+		}
 		close(stream.connReady)
 		return
 	}

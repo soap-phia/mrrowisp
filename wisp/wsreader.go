@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/binary"
 	"io"
-	"math"
 	"unsafe"
 )
 
@@ -13,6 +12,7 @@ func (c *wispConnection) readLoop() {
 	reader := bufio.NewReaderSize(c.netConn, 64*1024)
 
 	const PayloadBufferSize = 256 * 1024
+	const DefaultMaxPayloadSize = 10 * 1024 * 1024
 	PayloadBuffer := make([]byte, PayloadBufferSize)
 	var headerBuffer [14]byte
 
@@ -48,7 +48,7 @@ func (c *wispConnection) readLoop() {
 			}
 		}
 
-		if payloadLen > math.MaxInt32 || (c.config.MaxMessageSize > 0 && payloadLen > uint64(c.config.MaxMessageSize)) {
+		if payloadLen > DefaultMaxPayloadSize || (c.config.MaxMessageSize > 0 && payloadLen > uint64(c.config.MaxMessageSize)) {
 			c.sendWSClose(1009)
 			return
 		}
