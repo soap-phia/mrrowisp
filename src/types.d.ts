@@ -2,11 +2,17 @@ import type { ChildProcess } from "child_process";
 
 export type Config = {
 	port?: number;
-	disableUDP?: boolean;
+	allowTCP?: boolean;
+	allowUDP?: boolean;
+	allowDirectIP?: boolean;
+	allowPrivateIPs?: boolean;
+	allowLoopbackIPs?: boolean;
 	tcpBufferSize?: number;
 	bufferRemainingLength?: number;
 	tcpNoDelay?: boolean;
 	websocketTcpNoDelay?: boolean;
+	streamLimitPerHost?: number;
+	streamLimitTotal?: number;
 	blacklist?: {
 		hostnames: string[];
 		ports?: number[];
@@ -17,7 +23,10 @@ export type Config = {
 	};
 	proxy?: string;
 	websocketPermessageDeflate?: boolean;
-	dnsServer?: string[];
+	dnsServers?: string[];
+	dnsTTLSeconds?: number;
+	dnsMethod?: string;
+	dnsResultOrder?: string;
 	enableTwisp?: boolean;
 	enableV2: boolean;
 	motd?: string;
@@ -30,6 +39,18 @@ export type Config = {
 	certAuthRequired?: boolean;
 	certAuthPublicKeys?: string[];
 	enableStreamConfirm?: boolean;
+	maxConnectsPerSecond?: number;
+	bandwidthLimitKbps?: number;
+	connectionsLimitPerIP?: number;
+	connectionWindowSeconds?: number;
+	parseRealIP?: boolean;
+	parseRealIPFrom?: string[];
+	maxMessageSize?: number;
+	staticDir?: string;
+	enableStatsEndpoint?: boolean;
+	statsEndpoint?: string;
+	nonWSResponse?: string;
+	logLevel?: string;
 };
 
 export type WispEvents = {
@@ -63,8 +84,29 @@ export type WispBuilder = {
 	whitelist(hostnames: string[]): WispBuilder;
 	blacklistPorts(ports: number[]): WispBuilder;
 	whitelistPorts(ports: number[]): WispBuilder;
+	allowTCP(enabled: boolean): WispBuilder;
+	allowUDP(enabled: boolean): WispBuilder;
+	allowDirectIP(enabled: boolean): WispBuilder;
+	allowPrivateIPs(enabled: boolean): WispBuilder;
+	allowLoopbackIPs(enabled: boolean): WispBuilder;
+	streamLimitPerHost(limit: number): WispBuilder;
+	streamLimitTotal(limit: number): WispBuilder;
+	bandwidthLimitKbps(limit: number): WispBuilder;
+	connectionsLimitPerIP(limit: number): WispBuilder;
+	connectionWindowSeconds(seconds: number): WispBuilder;
+	parseRealIP(enabled: boolean): WispBuilder;
+	parseRealIPFrom(ips: string[]): WispBuilder;
+	maxMessageSize(bytes: number): WispBuilder;
+	staticDir(path: string): WispBuilder;
+	stats(enabled: boolean): WispBuilder;
+	statsEndpoint(path: string): WispBuilder;
+	nonWSResponse(body: string): WispBuilder;
+	logLevel(level: string): WispBuilder;
 	proxy(url: string): WispBuilder;
 	dns(servers: string | string[]): WispBuilder;
+	dnsTTL(seconds: number): WispBuilder;
+	dnsMethod(method: string): WispBuilder;
+	dnsResultOrder(order: string): WispBuilder;
 	route(req: IncomingMessage, socket: Socket, head: Buffer): void;
 	onReady(callback: () => void): WispBuilder;
 	onError(callback: (error: Error) => void): WispBuilder;

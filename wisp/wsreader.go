@@ -54,6 +54,11 @@ func (c *wispConnection) readLoop() {
 			payload = make([]byte, payloadLen)
 		}
 
+		if c.config.MaxMessageSize > 0 && payloadLen > uint64(c.config.MaxMessageSize) {
+			c.sendWSClose(1009)
+			return
+		}
+
 		if payloadLen > 0 {
 			if _, err := io.ReadFull(reader, payload); err != nil {
 				return

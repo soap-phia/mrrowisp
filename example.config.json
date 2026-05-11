@@ -1,10 +1,16 @@
 {
 	"port": 6001,
-	"disableUDP": false,
+	"allowTCP": true,
+	"allowUDP": true,
+	"allowDirectIP": true,
+	"allowPrivateIPs": false,
+	"allowLoopbackIPs": false,
 	"tcpBufferSize": 65535,
 	"bufferRemainingLength": 1024,
 	"tcpNoDelay": true,
 	"websocketTcpNoDelay": true,
+	"streamLimitPerHost": 0,
+	"streamLimitTotal": 0,
 	"blacklist": {
 		"hostnames": [],
 		"ports": []
@@ -15,7 +21,10 @@
 	},
 	"proxy": "",
 	"websocketPermessageDeflate": false,
-	"dnsServer": [],
+	"dnsServers": [],
+	"dnsTTLSeconds": 120,
+	"dnsMethod": "lookup",
+	"dnsResultOrder": "verbatim",
 	"enableTwisp": false,
 	"enableV2": true,
 	"motd": "",
@@ -25,5 +34,17 @@
 	"certAuth": false,
 	"certAuthRequired": false,
 	"certAuthPublicKeys": [],
-	"enableStreamConfirm": false
+	"enableStreamConfirm": false,
+	"maxConnectsPerSecond": 20,
+	"bandwidthLimitKbps": 0,
+	"connectionsLimitPerIP": 0,
+	"connectionWindowSeconds": 1,
+	"parseRealIP": true,
+	"parseRealIPFrom": ["127.0.0.1"],
+	"maxMessageSize": 0,
+	"staticDir": "",
+	"enableStatsEndpoint": false,
+	"statsEndpoint": "/stats",
+	"nonWSResponse": "",
+	"logLevel": "info"
 }

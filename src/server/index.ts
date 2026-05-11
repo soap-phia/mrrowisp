@@ -119,7 +119,7 @@ class WispBuilderImpl implements WispBuilder {
 	}
 
 	udp(enabled: boolean): WispBuilder {
-		this.config.disableUDP = !enabled;
+		this.config.allowUDP = enabled;
 		return this;
 	}
 
@@ -149,12 +149,102 @@ class WispBuilderImpl implements WispBuilder {
 	}
 
 	blacklistPorts(ports: number[]): WispBuilder {
-		this.config.blacklist = { ...this.config.blacklist, ports };
+		this.config.blacklist = { hostnames: this.config.blacklist?.hostnames ?? [], ports };
 		return this;
 	}
 
 	whitelistPorts(ports: number[]): WispBuilder {
-		this.config.whitelist = { ...this.config.whitelist, ports };
+		this.config.whitelist = { hostnames: this.config.whitelist?.hostnames ?? [], ports };
+		return this;
+	}
+
+	allowTCP(enabled: boolean): WispBuilder {
+		this.config.allowTCP = enabled;
+		return this;
+	}
+
+	allowUDP(enabled: boolean): WispBuilder {
+		this.config.allowUDP = enabled;
+		return this;
+	}
+
+	allowDirectIP(enabled: boolean): WispBuilder {
+		this.config.allowDirectIP = enabled;
+		return this;
+	}
+
+	allowPrivateIPs(enabled: boolean): WispBuilder {
+		this.config.allowPrivateIPs = enabled;
+		return this;
+	}
+
+	allowLoopbackIPs(enabled: boolean): WispBuilder {
+		this.config.allowLoopbackIPs = enabled;
+		return this;
+	}
+
+	streamLimitPerHost(limit: number): WispBuilder {
+		this.config.streamLimitPerHost = limit;
+		return this;
+	}
+
+	streamLimitTotal(limit: number): WispBuilder {
+		this.config.streamLimitTotal = limit;
+		return this;
+	}
+
+	bandwidthLimitKbps(limit: number): WispBuilder {
+		this.config.bandwidthLimitKbps = limit;
+		return this;
+	}
+
+	connectionsLimitPerIP(limit: number): WispBuilder {
+		this.config.connectionsLimitPerIP = limit;
+		return this;
+	}
+
+	connectionWindowSeconds(seconds: number): WispBuilder {
+		this.config.connectionWindowSeconds = seconds;
+		return this;
+	}
+
+	parseRealIP(enabled: boolean): WispBuilder {
+		this.config.parseRealIP = enabled;
+		return this;
+	}
+
+	parseRealIPFrom(ips: string[]): WispBuilder {
+		this.config.parseRealIPFrom = ips;
+		return this;
+	}
+
+	maxMessageSize(bytes: number): WispBuilder {
+		this.config.maxMessageSize = bytes;
+		return this;
+	}
+
+	staticDir(path: string): WispBuilder {
+		this.config.staticDir = path;
+		return this;
+	}
+
+	stats(enabled: boolean): WispBuilder {
+		this.config.enableStatsEndpoint = enabled;
+		return this;
+	}
+
+	statsEndpoint(path: string): WispBuilder {
+		this.config.statsEndpoint = path;
+		return this;
+	}
+
+	nonWSResponse(body: string): WispBuilder {
+		this.config.nonWSResponse = body;
+		return this;
+	}
+
+	logLevel(level: string): WispBuilder {
+		this.config.logLevel = level;
 		return this;
 	}
 
@@ -164,7 +254,22 @@ class WispBuilderImpl implements WispBuilder {
 	}
 
 	dns(servers: string | string[]): WispBuilder {
-		this.config.dnsServer = Array.isArray(servers) ? servers : [servers];
+		this.config.dnsServers = Array.isArray(servers) ? servers : [servers];
+		return this;
+	}
+
+	dnsTTL(seconds: number): WispBuilder {
+		this.config.dnsTTLSeconds = seconds;
+		return this;
+	}
+
+	dnsMethod(method: string): WispBuilder {
+		this.config.dnsMethod = method;
+		return this;
+	}
+
+	dnsResultOrder(order: string): WispBuilder {
+		this.config.dnsResultOrder = order;
 		return this;
 	}
 

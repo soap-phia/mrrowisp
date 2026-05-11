@@ -60,18 +60,46 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 	}
 
 	resolvedHostname := hostname
+	if ip := net.ParseIP(hostname); ip != nil {
+		if !cfg.AllowDirectIP {
+			s.close(closeReasonBlocked)
+			return
+		}
+		if !cfg.AllowPrivateIPs && isPrivateIP(ip) {
+			s.close(closeReasonBlocked)
+			return
+		}
+		if !cfg.AllowLoopbackIPs && ip.IsLoopback() {
+			s.close(closeReasonBlocked)
+			return
+		}
+		resolvedHostname = ip.String()
+	}
+
 	if cfg.DNSCache != nil {
 		if _, whitelisted := cfg.Whitelist.Hostnames[hostname]; !whitelisted {
 			ips, err := cfg.DNSCache.LookupIPAddr(context.Background(), hostname)
 			if err != nil {
+				cfg.Logger.Warn("DNS lookup failed", "ip", s.wispConn.remoteIP, "hostname", hostname, "error", err)
 				s.close(closeReasonUnreachable)
 				return
 			}
 			if len(ips) == 0 {
+				cfg.Logger.Warn("DNS returned no results", "ip", s.wispConn.remoteIP, "hostname", hostname)
 				s.close(closeReasonUnreachable)
 				return
 			}
 			resolvedHostname = ips[0].IP.String()
+			if ip := net.ParseIP(resolvedHostname); ip != nil {
+				if !cfg.AllowPrivateIPs && isPrivateIP(ip) {
+					s.close(closeReasonBlocked)
+					return
+				}
+				if !cfg.AllowLoopbackIPs && ip.IsLoopback() {
+					s.close(closeReasonBlocked)
+					return
+				}
+			}
 		}
 	}
 
@@ -94,7 +122,7 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 			s.conn, err = cfg.Dialer.Dial("tcp", destination)
 		}
 	case streamTypeUDP:
-		if cfg.DisableUDP || cfg.Proxy != "" {
+		if cfg.Proxy != "" || !cfg.AllowUDP {
 			s.close(closeReasonBlocked)
 			return
 		}
@@ -105,6 +133,7 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 	}
 
 	if err != nil {
+		cfg.Logger.Warn("stream connection failed", "ip", s.wispConn.remoteIP, "hostname", hostname, "port", port, "error", err)
 		s.close(mapDialError(err))
 		return
 	}
@@ -157,6 +186,12 @@ func (s *wispStream) readFromConnection() {
 	for {
 		n, err := s.conn.Read(buf[maxHeaderLen:])
 		if n > 0 {
+			if s.wispConn.config.BandwidthLimiter != nil {
+				if !s.wispConn.config.BandwidthLimiter.Allow(s.wispConn.remoteIP, uint64(n)) {
+					s.close(closeReasonThrottled)
+					return
+				}
+			}
 			totalPayload := 5 + n
 			var frameStart int
 
@@ -195,14 +230,15 @@ func (s *wispStream) readFromConnection() {
 			copy(frame, buf[frameStart:maxHeaderLen+n])
 			s.wispConn.queueWrite(frame)
 		}
-		if err != nil {
-			if err == io.EOF {
-				s.close(closeReasonVoluntary)
-			} else {
-				s.close(closeReasonNetworkError)
-			}
-			return
+	if err != nil {
+		if err == io.EOF {
+			s.close(closeReasonVoluntary)
+		} else {
+			s.wispConn.config.Logger.Warn("stream read error", "ip", s.wispConn.remoteIP, "hostname", s.hostname, "error", err)
+			s.close(closeReasonNetworkError)
 		}
+		return
+	}
 	}
 }
 
@@ -217,6 +253,10 @@ func (s *wispStream) close(reason uint8) {
 
 	if s.conn != nil {
 		s.conn.Close()
+	}
+
+	if s.wispConn.config.StreamLimiter != nil {
+		s.wispConn.config.StreamLimiter.release(s.hostname)
 	}
 
 	s.wispConn.sendClosePacket(s.streamId, reason)

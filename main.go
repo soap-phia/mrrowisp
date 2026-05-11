@@ -15,11 +15,17 @@ import (
 
 type Config struct {
 	Port                  int    `json:"port"`
-	DisableUDP            bool   `json:"disableUDP"`
+	AllowTCP              bool   `json:"allowTCP"`
+	AllowUDP              bool   `json:"allowUDP"`
+	AllowDirectIP         bool   `json:"allowDirectIP"`
+	AllowPrivateIPs       bool   `json:"allowPrivateIPs"`
+	AllowLoopbackIPs      bool   `json:"allowLoopbackIPs"`
 	TcpBufferSize         int    `json:"tcpBufferSize"`
 	BufferRemainingLength uint32 `json:"bufferRemainingLength"`
 	TcpNoDelay            bool   `json:"tcpNoDelay"`
 	WebsocketTcpNoDelay   bool   `json:"websocketTcpNoDelay"`
+	StreamLimitPerHost    int    `json:"streamLimitPerHost"`
+	StreamLimitTotal      int    `json:"streamLimitTotal"`
 
 	Blacklist struct {
 		Hostnames []string `json:"hostnames"`
@@ -33,6 +39,9 @@ type Config struct {
 	Proxy                      string   `json:"proxy"`
 	WebsocketPermessageDeflate bool     `json:"websocketPermessageDeflate"`
 	DnsServers                 []string `json:"dnsServers"`
+	DnsTTLSeconds              int      `json:"dnsTTLSeconds"`
+	DnsMethod                  string   `json:"dnsMethod"`
+	DnsResultOrder             string   `json:"dnsResultOrder"`
 
 	EnableTwisp bool `json:"enableTwisp"`
 
@@ -46,12 +55,26 @@ type Config struct {
 	CertAuthPublicKeys   []string          `json:"certAuthPublicKeys"`
 	EnableStreamConfirm  bool              `json:"enableStreamConfirm"`
 	MaxConnectsPerSecond int               `json:"maxConnectsPerSecond"`
+
+	BandwidthLimitKbps      int      `json:"bandwidthLimitKbps"`
+	ConnectionsLimitPerIP   int      `json:"connectionsLimitPerIP"`
+	ConnectionWindowSeconds int      `json:"connectionWindowSeconds"`
+	ParseRealIP             bool     `json:"parseRealIP"`
+	ParseRealIPFrom         []string `json:"parseRealIPFrom"`
+	MaxMessageSize          int      `json:"maxMessageSize"`
+	StaticDir               string   `json:"staticDir"`
+	NonWSResponse           string   `json:"nonWSResponse"`
+	LogLevel                string   `json:"logLevel"`
 }
 
 func defaultConfig() Config {
 	return Config{
 		Port:                       6001,
-		DisableUDP:                 false,
+		AllowTCP:                   true,
+		AllowUDP:                   true,
+		AllowDirectIP:              true,
+		AllowPrivateIPs:            false,
+		AllowLoopbackIPs:           false,
 		TcpBufferSize:              32768,
 		BufferRemainingLength:      65536,
 		TcpNoDelay:                 true,
@@ -65,6 +88,13 @@ func defaultConfig() Config {
 		CertAuth:                   false,
 		CertAuthRequired:           false,
 		EnableStreamConfirm:        false,
+		DnsTTLSeconds:              120,
+		DnsMethod:                  "lookup",
+		DnsResultOrder:             "verbatim",
+		ConnectionWindowSeconds:    1,
+		ParseRealIP:                true,
+		ParseRealIPFrom:            []string{"127.0.0.1"},
+		LogLevel:                   "info",
 	}
 }
 
@@ -89,6 +119,7 @@ func loadConfig(config string) (Config, error) {
 	if err := decoder.Decode(&cfg); err != nil {
 		return cfg, err
 	}
+
 	return cfg, nil
 }
 
@@ -125,12 +156,23 @@ func createWispConfig(cfg Config) *wisp.Config {
 		pubKeys = append(pubKeys, ed25519.PublicKey(hexKeyBytes))
 	}
 
+	parseReal := make(map[string]struct{})
+	for _, ip := range cfg.ParseRealIPFrom {
+		parseReal[ip] = struct{}{}
+	}
+
 	wispCfg := &wisp.Config{
-		DisableUDP:            cfg.DisableUDP,
+		AllowTCP:              cfg.AllowTCP,
+		AllowUDP:              cfg.AllowUDP,
+		AllowDirectIP:         cfg.AllowDirectIP,
+		AllowPrivateIPs:       cfg.AllowPrivateIPs,
+		AllowLoopbackIPs:      cfg.AllowLoopbackIPs,
 		TcpBufferSize:         cfg.TcpBufferSize,
 		BufferRemainingLength: cfg.BufferRemainingLength,
 		TcpNoDelay:            cfg.TcpNoDelay,
 		WebsocketTcpNoDelay:   cfg.WebsocketTcpNoDelay,
+		StreamLimitPerHost:    cfg.StreamLimitPerHost,
+		StreamLimitTotal:      cfg.StreamLimitTotal,
 		Blacklist: struct {
 			Hostnames map[string]struct{}
 			Ports     map[string]struct{}
@@ -148,6 +190,9 @@ func createWispConfig(cfg Config) *wisp.Config {
 		Proxy:                      cfg.Proxy,
 		WebsocketPermessageDeflate: cfg.WebsocketPermessageDeflate,
 		DnsServers:                 cfg.DnsServers,
+		DnsTTLSeconds:              cfg.DnsTTLSeconds,
+		DnsMethod:                  cfg.DnsMethod,
+		DnsResultOrder:             cfg.DnsResultOrder,
 		EnableTwisp:                cfg.EnableTwisp,
 		EnableV2:                   cfg.EnableV2,
 		Motd:                       cfg.Motd,
@@ -159,10 +204,24 @@ func createWispConfig(cfg Config) *wisp.Config {
 		CertAuthPublicKeys:         pubKeys,
 		EnableStreamConfirm:        cfg.EnableStreamConfirm,
 		MaxConnectsPerSecond:       cfg.MaxConnectsPerSecond,
+		BandwidthLimitKbps:         cfg.BandwidthLimitKbps,
+		ConnectionsLimitPerIP:      cfg.ConnectionsLimitPerIP,
+		ConnectionWindowSeconds:    cfg.ConnectionWindowSeconds,
+		ParseRealIP:                cfg.ParseRealIP,
+		ParseRealIPFrom:            parseReal,
+		MaxMessageSize:             cfg.MaxMessageSize,
+		NonWSResponse:              cfg.NonWSResponse,
+		LogLevel:                   cfg.LogLevel,
 	}
 
 	if wispCfg.PasswordUsers == nil {
 		wispCfg.PasswordUsers = make(map[string]string)
+	}
+	if wispCfg.StreamLimitPerHost < 0 {
+		wispCfg.StreamLimitPerHost = 0
+	}
+	if wispCfg.StreamLimitTotal < 0 {
+		wispCfg.StreamLimitTotal = 0
 	}
 
 	return wispCfg
@@ -171,6 +230,26 @@ func createWispConfig(cfg Config) *wisp.Config {
 func main() {
 	fConfig := flag.String("config", "", "config to load (file or json string)")
 	fPort := flag.Int("port", 0, "port to run on")
+	fLogLevel := flag.String("log-level", "", "log level (debug, info, warn, error)")
+	fAllowTCP := flag.Bool("allow-tcp", true, "allow TCP streams")
+	fAllowUDP := flag.Bool("allow-udp", true, "allow UDP streams")
+	fAllowDirectIP := flag.Bool("allow-direct-ip", true, "allow direct IP targets")
+	fAllowPrivateIPs := flag.Bool("allow-private", false, "allow private IP targets")
+	fAllowLoopbackIPs := flag.Bool("allow-loopback", false, "allow loopback IP targets")
+	fStreamLimitPerHost := flag.Int("stream-limit-per-host", 0, "max streams per host (0 = unlimited)")
+	fStreamLimitTotal := flag.Int("stream-limit-total", 0, "max total streams (0 = unlimited)")
+	fBandwidthLimit := flag.Int("bandwidth", 0, "bandwidth limit per IP in KB/s")
+	fConnectionsLimit := flag.Int("connections", 0, "connections per IP per window")
+	fWindow := flag.Int("window", 1, "rate limit window in seconds")
+	fDnsServers := flag.String("dns", "", "comma-separated DNS servers")
+	fDnsMethod := flag.String("dns-method", "", "DNS method (lookup|resolve)")
+	fDnsOrder := flag.String("dns-order", "", "DNS result order (ipv4first|ipv6first|verbatim)")
+	fDnsTTL := flag.Int("dns-ttl", 0, "DNS cache TTL seconds")
+	fStatic := flag.String("static", "", "static directory to serve")
+	fNonWS := flag.String("non-ws-response", "", "response body for non-websocket requests")
+	fParseRealIP := flag.Bool("parse-real-ip", true, "parse client IP from forwarded headers")
+	fParseRealIPFrom := flag.String("parse-real-ip-from", "", "comma-separated list of IPs allowed to set real IP")
+	fMaxMessageSize := flag.Int("max-message-size", 0, "max websocket message size in bytes")
 	flag.Parse()
 
 	var cfg Config
@@ -189,12 +268,77 @@ func main() {
 	if *fPort != 0 {
 		cfg.Port = *fPort
 	}
+	if *fLogLevel != "" {
+		cfg.LogLevel = *fLogLevel
+	}
+	if *fAllowTCP != true {
+		cfg.AllowTCP = *fAllowTCP
+	}
+	if *fAllowUDP != true {
+		cfg.AllowUDP = *fAllowUDP
+	}
+	if *fAllowDirectIP != true {
+		cfg.AllowDirectIP = *fAllowDirectIP
+	}
+	if *fAllowPrivateIPs != false {
+		cfg.AllowPrivateIPs = *fAllowPrivateIPs
+	}
+	if *fAllowLoopbackIPs != false {
+		cfg.AllowLoopbackIPs = *fAllowLoopbackIPs
+	}
+	if *fStreamLimitPerHost != 0 {
+		cfg.StreamLimitPerHost = *fStreamLimitPerHost
+	}
+	if *fStreamLimitTotal != 0 {
+		cfg.StreamLimitTotal = *fStreamLimitTotal
+	}
+	if *fBandwidthLimit != 0 {
+		cfg.BandwidthLimitKbps = *fBandwidthLimit
+	}
+	if *fConnectionsLimit != 0 {
+		cfg.ConnectionsLimitPerIP = *fConnectionsLimit
+	}
+	if *fWindow != 0 {
+		cfg.ConnectionWindowSeconds = *fWindow
+	}
+	if *fDnsServers != "" {
+		cfg.DnsServers = strings.Split(*fDnsServers, ",")
+	}
+	if *fDnsMethod != "" {
+		cfg.DnsMethod = *fDnsMethod
+	}
+	if *fDnsOrder != "" {
+		cfg.DnsResultOrder = *fDnsOrder
+	}
+	if *fDnsTTL != 0 {
+		cfg.DnsTTLSeconds = *fDnsTTL
+	}
+	if *fStatic != "" {
+		cfg.StaticDir = *fStatic
+	}
+	if *fNonWS != "" {
+		cfg.NonWSResponse = *fNonWS
+	}
+	if *fParseRealIP != true {
+		cfg.ParseRealIP = *fParseRealIP
+	}
+	if *fParseRealIPFrom != "" {
+		cfg.ParseRealIPFrom = strings.Split(*fParseRealIPFrom, ",")
+	}
+	if *fMaxMessageSize != 0 {
+		cfg.MaxMessageSize = *fMaxMessageSize
+	}
 
 	wispConfig := createWispConfig(cfg)
 
 	wispHandler := wisp.CreateWispHandler(wispConfig)
 
-	http.HandleFunc("/", wispHandler)
+	if cfg.StaticDir != "" {
+		http.Handle("/", http.FileServer(http.Dir(cfg.StaticDir)))
+		http.HandleFunc("/wisp", wispHandler)
+	} else {
+		http.HandleFunc("/", wispHandler)
+	}
 	fmt.Printf("Starting Mrrowisp on port %d. . .", cfg.Port)
 	err = http.ListenAndServe(fmt.Sprintf(":%d", cfg.Port), nil)
 	if err != nil {

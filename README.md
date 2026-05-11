@@ -17,6 +17,12 @@ so quick story abt how this was made, this was the initial project, then amplify
 - Port blacklist/whitelist filtering
 - SOCKS5 proxy support for upstream connections
 - Custom DNS server with caching
+- Rate limiting (bandwidth + connection limits)
+- Stream limits (per-host and total)
+- Private/loopback IP controls + direct IP blocking
+- Static file serving and stats endpoint
+- Log level configuration
+- Max WebSocket message size
 - WebSocket permessage-deflate compression
 - Configurable TCP buffer sizes and flow control
 
@@ -65,6 +71,12 @@ const server = await createMrrowisp()
 	.blacklist(["truthsocial.com"]) // idk i'd block this
 	.whitelistPorts([80, 443])
 	.dns(["8.8.8.8","1.1.1.1"])
+	.bandwidthLimitKbps(500)
+	.connectionsLimitPerIP(100)
+	.streamLimitPerHost(32)
+	.allowDirectIP(false)
+	.allowPrivateIPs(false)
+	.stats(true)
 	.start();
 ```
 
@@ -150,10 +162,31 @@ server.kill("SIGTERM");
 | `motd(message)`        | Set message of the day             |
 | `blacklist(hostnames)` | Set blocked hostnames              |
 | `whitelist(hostnames)` | Set whitelisted hostnames          |
-| `blacklistPorts(ports)` | Set blocked destination ports     |
-| `whitelistPorts(ports)` | Set whitelisted destination ports |
+| `blacklistPorts(ports)` | Set blocked destination ports      |
+| `whitelistPorts(ports)` | Set whitelisted destination ports  |
+| `allowTCP(enabled)`      | Allow TCP streams                   |
+| `allowUDP(enabled)`      | Allow UDP streams                   |
+| `allowDirectIP(enabled)` | Allow direct IP targets             |
+| `allowPrivateIPs(enabled)` | Allow private IP targets          |
+| `allowLoopbackIPs(enabled)` | Allow loopback IP targets        |
+| `streamLimitPerHost(limit)` | Max streams per host            |
+| `streamLimitTotal(limit)` | Max total streams                 |
+| `bandwidthLimitKbps(limit)` | Bandwidth limit per IP          |
+| `connectionsLimitPerIP(limit)` | Connection limit per IP     |
+| `connectionWindowSeconds(seconds)` | Rate limit window        |
+| `parseRealIP(enabled)` | Use forwarded headers for client IP |
+| `parseRealIPFrom(ips)` | Allowlist for forwarded IP parsing   |
+| `maxMessageSize(bytes)` | Max WebSocket message size          |
+| `staticDir(path)`       | Serve static files                   |
+| `stats(enabled)`        | Enable stats endpoint                |
+| `statsEndpoint(path)`   | Stats endpoint path                  |
+| `nonWSResponse(body)`   | Response for non-WebSocket requests  |
+| `logLevel(level)`       | Log level (debug, info, warn, error) |
 | `proxy(url)`           | Set SOCKS5 proxy address           |
 | `dns(server)`          | Set custom DNS server              |
+| `dnsTTL(seconds)`      | DNS cache TTL seconds              |
+| `dnsMethod(method)`    | DNS method (lookup or resolve)     |
+| `dnsResultOrder(order)` | DNS result order                  |
 | `onReady(cb)`          | Callback when server starts        |
 | `onError(cb)`          | Callback on errors                 |
 | `onExit(cb)`           | Callback when server exits         |
@@ -187,11 +220,17 @@ Copy `example.config.json` to `config.json` and edit as needed:
 ```json
 {
 	"port": "6001",
-	"disableUDP": false,
+	"allowTCP": true,
+	"allowUDP": true,
+	"allowDirectIP": true,
+	"allowPrivateIPs": false,
+	"allowLoopbackIPs": false,
 	"tcpBufferSize": 65535,
 	"bufferRemainingLength": 1024,
 	"tcpNoDelay": true,
 	"websocketTcpNoDelay": true,
+	"streamLimitPerHost": 0,
+	"streamLimitTotal": 0,
 	"blacklist": {
 		"hostnames": [],
 		"ports": []
@@ -202,7 +241,10 @@ Copy `example.config.json` to `config.json` and edit as needed:
 	},
 	"proxy": "",
 	"websocketPermessageDeflate": false,
-	"dnsServer": "",
+	"dnsServers": [],
+	"dnsTTLSeconds": 120,
+	"dnsMethod": "lookup",
+	"dnsResultOrder": "verbatim",
 	"enableTwisp": false,
 	"enableV2": true,
 	"motd": "",
@@ -212,7 +254,19 @@ Copy `example.config.json` to `config.json` and edit as needed:
 	"certAuth": false,
 	"certAuthRequired": false,
 	"certAuthPublicKeys": [],
-	"enableStreamConfirm": false
+	"enableStreamConfirm": false,
+	"maxConnectsPerSecond": 20,
+	"bandwidthLimitKbps": 0,
+	"connectionsLimitPerIP": 0,
+	"connectionWindowSeconds": 1,
+	"parseRealIP": true,
+	"parseRealIPFrom": ["127.0.0.1"],
+	"maxMessageSize": 0,
+	"staticDir": "",
+	"enableStatsEndpoint": false,
+	"statsEndpoint": "/stats",
+	"nonWSResponse": "",
+	"logLevel": "info"
 }
 ```
 
@@ -221,18 +275,28 @@ Copy `example.config.json` to `config.json` and edit as needed:
 | Option                       | Type     | Description                                   |
 | ---------------------------- | -------- | --------------------------------------------- |
 | `port`                       | string   | Port to listen on                             |
-| `disableUDP`                 | bool     | Disable UDP stream support                    |
+| `allowUDP`                   | bool     | Allow UDP streams                             |
+| `allowTCP`                   | bool     | Allow TCP streams                             |
+| `allowUDP`                   | bool     | Allow UDP streams                             |
+| `allowDirectIP`              | bool     | Allow direct IP targets                       |
+| `allowPrivateIPs`            | bool     | Allow private IP targets                      |
+| `allowLoopbackIPs`           | bool     | Allow loopback IP targets                     |
 | `tcpBufferSize`              | int      | TCP read buffer size                          |
 | `bufferRemainingLength`      | uint32   | Flow control buffer threshold                 |
 | `tcpNoDelay`                 | bool     | Enable TCP_NODELAY on outbound connections    |
 | `websocketTcpNoDelay`        | bool     | Enable TCP_NODELAY on WebSocket connections   |
+| `streamLimitPerHost`         | int      | Max streams per host (0 = unlimited)          |
+| `streamLimitTotal`           | int      | Max total streams (0 = unlimited)             |
 | `blacklist.hostnames`        | []string | Hostnames to block                            |
 | `whitelist.hostnames`        | []string | Hostnames to bypass DNS resolution            |
 | `blacklist.ports`            | []int    | Destination ports to block                    |
 | `whitelist.ports`            | []int    | Destination ports to allow                    |
 | `proxy`                      | string   | SOCKS5 proxy address (e.g., `127.0.0.1:1080`) |
 | `websocketPermessageDeflate` | bool     | Enable WebSocket compression                  |
-| `dnsServer`                  | string   | Custom DNS server (e.g., `8.8.8.8:53`)        |
+| `dnsServers`                 | []string | Custom DNS servers (e.g., `8.8.8.8:53`)       |
+| `dnsTTLSeconds`              | int      | DNS cache TTL seconds                         |
+| `dnsMethod`                  | string   | DNS method (lookup or resolve)                |
+| `dnsResultOrder`             | string   | DNS result order                              |
 | `enableTwisp`                | bool     | Enable terminal streams (Unix only)           |
 | `enableV2`                   | bool     | Enable Wisp v2 protocol                       |
 | `motd`                       | string   | Message of the day sent to v2 clients         |
@@ -243,6 +307,18 @@ Copy `example.config.json` to `config.json` and edit as needed:
 | `certAuthRequired`           | bool     | Require certificate authentication            |
 | `certAuthPublicKeys`         | []string | Allowed Ed25519 public keys (hex-encoded)     |
 | `enableStreamConfirm`        | bool     | Send confirmation when streams connect        |
+| `maxConnectsPerSecond`       | int      | Connection rate limit (per second)            |
+| `bandwidthLimitKbps`         | int      | Bandwidth limit per IP                        |
+| `connectionsLimitPerIP`      | int      | New connections per IP per window             |
+| `connectionWindowSeconds`    | int      | Rate limit window in seconds                  |
+| `parseRealIP`                | bool     | Parse client IP from forwarded headers        |
+| `parseRealIPFrom`            | []string | Allowed proxies for forwarded IP parsing      |
+| `maxMessageSize`             | int      | Max WebSocket message size (bytes)            |
+| `staticDir`                  | string   | Static files directory                        |
+| `enableStatsEndpoint`        | bool     | Enable stats endpoint                         |
+| `statsEndpoint`              | string   | Stats endpoint path                           |
+| `nonWSResponse`              | string   | Response body for non-websocket requests      |
+| `logLevel`                   | string   | Log level (debug, info, warn, error)          |
 
 ## Credits
  - [soap phia](https://github.com/soap-phia/) - writing most of this

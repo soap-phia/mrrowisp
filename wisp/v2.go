@@ -26,7 +26,7 @@ type extensions struct {
 func (c *wispConnection) buildServerInfoPacket() []byte {
 	var extensions []byte
 
-	if !c.config.DisableUDP {
+	if c.config.AllowUDP {
 		extensions = addExtension(extensions, extensionUDP, nil)
 	}
 
