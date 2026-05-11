@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/binary"
 	"io"
+	"math"
 	"unsafe"
 )
 
@@ -47,7 +48,7 @@ func (c *wispConnection) readLoop() {
 			}
 		}
 
-		if c.config.MaxMessageSize > 0 && payloadLen > uint64(c.config.MaxMessageSize) {
+		if payloadLen > math.MaxInt32 || (c.config.MaxMessageSize > 0 && payloadLen > uint64(c.config.MaxMessageSize)) {
 			c.sendWSClose(1009)
 			return
 		}
