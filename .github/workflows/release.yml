@@ -71,7 +71,7 @@ jobs:
         run: |
           cp package.json dist/
           cp README.md dist/
-          cp LICENSE dist/ 2>/dev/null || true
+          cp LICENSE dist/
 
       - name: Archive npm package
         run: tar -czf mrrowisp-npm.tar.gz -C dist .
@@ -128,3 +128,26 @@ jobs:
           tar -xzf mrrowisp-npm/mrrowisp-npm.tar.gz -C /tmp/npm-pkg
           cd /tmp/npm-pkg
           npm publish --provenance --access public
+
+  update-latest:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Get latest release tag
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "tag=$(gh release view --json tagName --jq .tagName)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload assets to latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for dir in mrrowisp-*; do
+            gh release upload "${{ steps.latest.outputs.tag }}" "$dir"/* --clobber
+          done
