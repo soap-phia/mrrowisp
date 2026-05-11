@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as net from "net";
 import { WebSocketServer, WebSocket } from "ws";
 import { wispConfigPath, wispPath } from "../path.js";
-import type { Config, WispBuilder, WispEvents, WispServer, RouteRequest } from "../types.js";
+import type { Config, WispBuilder, WispEvents, WispServer, RouteRequest } from "../types.d.js";
 import type { IncomingMessage } from "http";
 
 type EventListeners = {

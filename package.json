@@ -20,7 +20,7 @@
 		"ws": "^8.20.0"
 	},
 	"scripts": {
-		"build:ts": "tsc && cp ./example.config.json ./dist/config.json && cp ./LICENSE ./package.json ./README.md ./dist/",
+		"build:ts": "tsc && cp ./src/types.d.ts ./dist/types.d.ts && cp ./example.config.json ./dist/config.json && cp ./LICENSE ./package.json ./README.md ./dist/",
 		"build:bin": "bash build.sh",
 		"build": "bun run build:ts && bun run build:bin"
 	}
