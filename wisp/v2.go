@@ -154,6 +154,9 @@ func (c *wispConnection) handleInfo(streamId uint32, payload []byte) {
 	if streamId != 0 {
 		return
 	}
+	if c.handshakeDone == nil {
+		return
+	}
 
 	clientExts, err := parseClientInfo(payload)
 	if err != nil {
@@ -197,6 +200,7 @@ func (c *wispConnection) handleInfo(streamId uint32, payload []byte) {
 	c.sendPacket(0, c.config.BufferRemainingLength)
 
 	close(c.handshakeDone)
+	c.handshakeDone = nil
 }
 
 func (c *wispConnection) verifyCertificate(exts *extensions) bool {

@@ -47,16 +47,16 @@ func (c *wispConnection) readLoop() {
 			}
 		}
 
+		if c.config.MaxMessageSize > 0 && payloadLen > uint64(c.config.MaxMessageSize) {
+			c.sendWSClose(1009)
+			return
+		}
+
 		var payload []byte
 		if payloadLen <= PayloadBufferSize {
 			payload = PayloadBuffer[:payloadLen]
 		} else {
 			payload = make([]byte, payloadLen)
-		}
-
-		if c.config.MaxMessageSize > 0 && payloadLen > uint64(c.config.MaxMessageSize) {
-			c.sendWSClose(1009)
-			return
 		}
 
 		if payloadLen > 0 {
