@@ -1,7 +1,7 @@
 #!/bin/bash
 
-rm -rf dist
-mkdir -p dist
+rm -rf bin
+mkdir -p bin
 
 if [ ! -f "main.go" ]; then
 	echo "main.go not found."
@@ -20,8 +20,8 @@ for os in linux darwin win32; do
 		else
 			goarch=$arch
 		fi
-		GOOS=$goos GOARCH=$goarch go build -o ./dist/${os}-${arch}/mrrowisp main.go
+		GOOS=$goos GOARCH=$goarch go build -o ./bin/${os}-${arch}/mrrowisp main.go
 	done
 done
 
-echo "Finished building. Binaries in ./dist/PLATFORM-ARCH/mrrowisp"
+echo "Finished building. Binaries in ./bin/PLATFORM-ARCH/mrrowisp"
