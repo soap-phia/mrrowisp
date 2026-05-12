@@ -34,6 +34,11 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 
 	cfg := s.wispConn.config
 	s.hostname = strings.ToLower(strings.TrimSpace(hostname))
+	s.hostname = strings.TrimSuffix(s.hostname, ".")
+	if s.hostname == "" {
+		s.close(closeReasonInvalidInfo)
+		return
+	}
 
 	if len(cfg.Whitelist.Hostnames) > 0 {
 		if _, ok := cfg.Whitelist.Hostnames[s.hostname]; !ok {
@@ -59,8 +64,8 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 		}
 	}
 
-	resolvedHostname := hostname
-	if ip := net.ParseIP(hostname); ip != nil {
+	resolvedHostname := s.hostname
+	if ip := net.ParseIP(resolvedHostname); ip != nil {
 		if !cfg.AllowDirectIP {
 			s.close(closeReasonBlocked)
 			return
@@ -77,28 +82,26 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 	}
 
 	if cfg.DNSCache != nil {
-		if _, whitelisted := cfg.Whitelist.Hostnames[hostname]; !whitelisted {
-			ips, err := cfg.DNSCache.LookupIPAddr(context.Background(), hostname)
-			if err != nil {
-				cfg.Logger.Warn("DNS lookup failed", "ip", s.wispConn.remoteIP, "hostname", hostname, "error", err)
-				s.close(closeReasonUnreachable)
+		ips, err := cfg.DNSCache.LookupIPAddr(context.Background(), resolvedHostname)
+		if err != nil {
+			cfg.Logger.Warn("DNS lookup failed", "ip", s.wispConn.remoteIP, "hostname", hostname, "error", err)
+			s.close(closeReasonUnreachable)
+			return
+		}
+		if len(ips) == 0 {
+			cfg.Logger.Warn("DNS returned no results", "ip", s.wispConn.remoteIP, "hostname", hostname)
+			s.close(closeReasonUnreachable)
+			return
+		}
+		resolvedHostname = ips[0].IP.String()
+		if ip := net.ParseIP(resolvedHostname); ip != nil {
+			if !cfg.AllowPrivateIPs && isPrivateIP(ip) {
+				s.close(closeReasonBlocked)
 				return
 			}
-			if len(ips) == 0 {
-				cfg.Logger.Warn("DNS returned no results", "ip", s.wispConn.remoteIP, "hostname", hostname)
-				s.close(closeReasonUnreachable)
+			if !cfg.AllowLoopbackIPs && ip.IsLoopback() {
+				s.close(closeReasonBlocked)
 				return
-			}
-			resolvedHostname = ips[0].IP.String()
-			if ip := net.ParseIP(resolvedHostname); ip != nil {
-				if !cfg.AllowPrivateIPs && isPrivateIP(ip) {
-					s.close(closeReasonBlocked)
-					return
-				}
-				if !cfg.AllowLoopbackIPs && ip.IsLoopback() {
-					s.close(closeReasonBlocked)
-					return
-				}
 			}
 		}
 	}
@@ -237,15 +240,15 @@ func (s *wispStream) readFromConnection() {
 			copy(frame, buf[frameStart:maxHeaderLen+n])
 			s.wispConn.queueWrite(frame)
 		}
-	if err != nil {
-		if err == io.EOF {
-			s.close(closeReasonVoluntary)
-		} else {
-			s.wispConn.config.Logger.Warn("stream read error", "ip", s.wispConn.remoteIP, "hostname", s.hostname, "error", err)
-			s.close(closeReasonNetworkError)
+		if err != nil {
+			if err == io.EOF {
+				s.close(closeReasonVoluntary)
+			} else {
+				s.wispConn.config.Logger.Warn("stream read error", "ip", s.wispConn.remoteIP, "hostname", s.hostname, "error", err)
+				s.close(closeReasonNetworkError)
+			}
+			return
 		}
-		return
-	}
 	}
 }
 

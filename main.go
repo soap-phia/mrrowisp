@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -124,22 +125,69 @@ func loadConfig(config string) (Config, error) {
 }
 
 func createWispConfig(cfg Config) *wisp.Config {
+	normalizeHostname := func(host string) string {
+		host = strings.TrimSpace(strings.ToLower(host))
+		host = strings.TrimSuffix(host, ".")
+		return host
+	}
+	normalizePort := func(port int) (string, bool) {
+		if port <= 0 || port > 65535 {
+			fmt.Printf("warning: invalid port %d\n", port)
+			return "", false
+		}
+		return fmt.Sprintf("%d", port), true
+	}
+
+	if cfg.TcpBufferSize <= 0 {
+		cfg.TcpBufferSize = 32768
+	}
+	if cfg.BufferRemainingLength == 0 {
+		cfg.BufferRemainingLength = 65536
+	}
+	if cfg.ConnectionWindowSeconds <= 0 {
+		cfg.ConnectionWindowSeconds = 1
+	}
+	if cfg.BandwidthLimitKbps < 0 {
+		cfg.BandwidthLimitKbps = 0
+	}
+	if cfg.ConnectionsLimitPerIP < 0 {
+		cfg.ConnectionsLimitPerIP = 0
+	}
+	if cfg.MaxConnectsPerSecond < 0 {
+		cfg.MaxConnectsPerSecond = 0
+	}
+	if cfg.MaxMessageSize < 0 {
+		cfg.MaxMessageSize = 0
+	}
+
 	blacklistedHostnames := make(map[string]struct{})
 	for _, host := range cfg.Blacklist.Hostnames {
-		blacklistedHostnames[host] = struct{}{}
+		normalized := normalizeHostname(host)
+		if normalized == "" {
+			continue
+		}
+		blacklistedHostnames[normalized] = struct{}{}
 	}
 	blacklistedPorts := make(map[string]struct{})
 	for _, port := range cfg.Blacklist.Ports {
-		blacklistedPorts[fmt.Sprintf("%d", port)] = struct{}{}
+		if normalized, ok := normalizePort(port); ok {
+			blacklistedPorts[normalized] = struct{}{}
+		}
 	}
 
 	whitelistedHostnames := make(map[string]struct{})
 	for _, host := range cfg.Whitelist.Hostnames {
-		whitelistedHostnames[host] = struct{}{}
+		normalized := normalizeHostname(host)
+		if normalized == "" {
+			continue
+		}
+		whitelistedHostnames[normalized] = struct{}{}
 	}
 	whitelistedPorts := make(map[string]struct{})
 	for _, port := range cfg.Whitelist.Ports {
-		whitelistedPorts[fmt.Sprintf("%d", port)] = struct{}{}
+		if normalized, ok := normalizePort(port); ok {
+			whitelistedPorts[normalized] = struct{}{}
+		}
 	}
 
 	var pubKeys []ed25519.PublicKey
@@ -158,7 +206,15 @@ func createWispConfig(cfg Config) *wisp.Config {
 
 	parseReal := make(map[string]struct{})
 	for _, ip := range cfg.ParseRealIPFrom {
-		parseReal[ip] = struct{}{}
+		normalized := strings.TrimSpace(ip)
+		if normalized == "" {
+			continue
+		}
+		if net.ParseIP(normalized) == nil {
+			fmt.Printf("warning: invalid parse-real-ip-from value %q\n", ip)
+			continue
+		}
+		parseReal[normalized] = struct{}{}
 	}
 
 	wispCfg := &wisp.Config{
