@@ -177,6 +177,15 @@ func CreateWispHandler(config *Config) http.HandlerFunc {
 			return
 		}
 
+		if !useV2 && config.requiresV2() {
+			config.Logger.Warn("websocket v1 downgrade blocked", "ip", remoteIP)
+			w.WriteHeader(http.StatusUnauthorized)
+			if config.NonWSResponse != "" {
+				_, _ = w.Write([]byte(config.NonWSResponse))
+			}
+			return
+		}
+
 		wsConn, err := upgrader.Upgrade(w, r)
 		if err != nil {
 			if config.NonWSResponse != "" {
@@ -219,4 +228,11 @@ func CreateWispHandler(config *Config) http.HandlerFunc {
 			go wc.readLoop()
 		}
 	}
+}
+
+func (c *Config) requiresV2() bool {
+	if c == nil {
+		return false
+	}
+	return c.PasswordAuthRequired || c.CertAuthRequired || c.EnableTwisp
 }
