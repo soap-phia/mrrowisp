@@ -1,4 +1,6 @@
 import type { ChildProcess } from "child_process";
+import { IncomingMessage } from "http";
+import { Socket } from "net";
 
 export type Config = {
 	port?: number;
@@ -74,7 +76,6 @@ export type WispServer = {
 export type WispBuilder = {
 	fromFile(path: string): WispBuilder;
 	fromJSON(json: string): WispBuilder;
-	withConfig(config: Partial<Config>): WispBuilder;
 	port(port: number): WispBuilder;
 	udp(enabled: boolean): WispBuilder;
 	v2(enabled: boolean): WispBuilder;
@@ -115,8 +116,4 @@ export type WispBuilder = {
 	onStderr(callback: (data: string) => void): WispBuilder;
 	getConfig(): Config;
 	start(): Promise<WispServer>;
-};
-
-export type RouteRequest = {
-	(req: IncomingMessage, socket: Socket, head: Buffer): void;
 };

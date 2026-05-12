@@ -47,6 +47,8 @@ type writeReq struct {
 	pool bool
 }
 
+const maxConcurrentDials = 50
+
 type wispConnection struct {
 	netConn        net.Conn
 	writeCh        chan writeReq
@@ -63,12 +65,16 @@ type wispConnection struct {
 	handshakeDone chan struct{}
 	streamConfirm bool
 	v2Challenge   []byte
+
+	dialSem chan struct{}
+	closeCh chan struct{}
 }
 
 func (c *wispConnection) close() {
 	if !c.isClosed.CompareAndSwap(false, true) {
 		return
 	}
+	close(c.closeCh)
 	c.netConn.Close()
 }
 

@@ -1,6 +1,6 @@
 {
 	"name": "mrrowisp",
-	"version": "2.0.1",
+	"version": "2.2.0",
 	"module": "index.ts",
 	"type": "module",
 	"author": "soap-phia",

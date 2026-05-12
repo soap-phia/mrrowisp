@@ -202,6 +202,8 @@ func CreateWispHandler(config *Config) http.HandlerFunc {
 			isV2:           useV2,
 			connectLimiter: newConnectRateLimiter(config.MaxConnectsPerSecond),
 			remoteIP:       remoteIP,
+			dialSem:        make(chan struct{}, maxConcurrentDials),
+			closeCh:        make(chan struct{}),
 		}
 
 		config.Logger.Info("connection established", "ip", remoteIP, "v2", useV2)

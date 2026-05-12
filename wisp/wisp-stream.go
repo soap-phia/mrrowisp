@@ -111,9 +111,15 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 	var err error
 	switch streamType {
 	case streamTypeTCP:
+		select {
+		case s.wispConn.dialSem <- struct{}{}:
+		case <-s.wispConn.closeCh:
+			return
+		}
 		if cfg.Proxy != "" {
 			dialer, proxyErr := proxy.SOCKS5("tcp", cfg.Proxy, nil, proxy.Direct)
 			if proxyErr != nil {
+				<-s.wispConn.dialSem
 				s.close(closeReasonNetworkError)
 				return
 			}
@@ -121,6 +127,7 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 		} else {
 			s.conn, err = cfg.Dialer.Dial("tcp", destination)
 		}
+		<-s.wispConn.dialSem
 	case streamTypeUDP:
 		if cfg.Proxy != "" || !cfg.AllowUDP {
 			s.close(closeReasonBlocked)

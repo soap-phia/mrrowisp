@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as net from "net";
 import { WebSocketServer, WebSocket } from "ws";
 import { wispConfigPath, wispPath } from "../path.js";
-import type { Config, WispBuilder, WispEvents, WispServer, RouteRequest } from "../types.d.js";
+import type { Config, WispBuilder, WispEvents, WispServer } from "../types.d.js";
 import type { IncomingMessage } from "http";
 
 type EventListeners = {
@@ -92,8 +92,11 @@ class WispBuilderImpl implements WispBuilder {
 		stderr: [],
 	};
 
-	constructor() {
+	constructor(config?: Partial<Config>) {
 		this.config = JSON.parse(fs.readFileSync(wispConfigPath, "utf-8"));
+		if (config) {
+			this.config = { ...this.config, ...config };
+		}
 	}
 
 	fromFile(path: string): WispBuilder {
@@ -105,11 +108,6 @@ class WispBuilderImpl implements WispBuilder {
 	fromJSON(json: string): WispBuilder {
 		const parsed = JSON.parse(json);
 		this.config = { ...this.config, ...parsed };
-		return this;
-	}
-
-	withConfig(config: Partial<Config>): WispBuilder {
-		this.config = { ...this.config, ...config };
 		return this;
 	}
 

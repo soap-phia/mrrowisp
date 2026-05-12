@@ -49,35 +49,28 @@ npm install mrrowisp
 ```ts
 import { createMrrowisp } from "mrrowisp";
 
-// Basic start and stop
-const server = await createMrrowisp()
-	.port(6001)
-	.v2(true)
-	.start();
+const server = await createMrrowisp({
+	port: 6001,
+	enableV2: true,
+	allowUDP: true,
+	enableTwisp: true,
+	motd: "mrrow merp purr :3",
+	blacklist: {
+		hostnames: ["truthsocial.com"],
+	},
+	whitelist: {
+		ports: [80, 443],
+	},
+	dnsServers: ["8.8.8.8", "1.1.1.1"],
+	bandwidthLimitKbps: 500,
+	connectionsLimitPerIP: 100,
+	streamLimitPerHost: 32,
+	allowDirectIP: false,
+	allowPrivateIPs: false,
+	enableStatsEndpoint: true,
+}).start();
 
-// later
 await server.stop();
-```
-
-#### Configuration
-
-```ts
-const server = await createMrrowisp()
-	.port(6001)
-	.v2(true)
-	.udp(true)
-	.twisp(true)
-	.motd("mrrow merp purr :3")
-	.blacklist(["truthsocial.com"]) // idk i'd block this
-	.whitelistPorts([80, 443])
-	.dns(["8.8.8.8","1.1.1.1"])
-	.bandwidthLimitKbps(500)
-	.connectionsLimitPerIP(100)
-	.streamLimitPerHost(32)
-	.allowDirectIP(false)
-	.allowPrivateIPs(false)
-	.stats(true)
-	.start();
 ```
 
 #### Event Handlers
@@ -115,9 +108,8 @@ const server = await createMrrowisp()
 	.start();
 
 // Merge multiple sources
-const server = await createMrrowisp()
+const server = await createMrrowisp({ port: 8080 })
 	.fromFile("./config.json")
-	.withConfig({ port: 8080 })	// Override specific values
 	.start();
 
 // Or from a JSON config
@@ -154,7 +146,6 @@ server.kill("SIGTERM");
 | ---------------------- | ---------------------------------- |
 | `fromFile(path)`       | Load config from a JSON file       |
 | `fromJSON(json)`       | Load config from a JSON string     |
-| `withConfig(config)`   | Merge a partial config object      |
 | `port(port)`           | Set the server port                |
 | `udp(enabled)`         | Enable/disable UDP support         |
 | `v2(enabled)`          | Enable/disable Wisp v2 protocol    |
