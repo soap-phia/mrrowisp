@@ -32,7 +32,7 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
-          files: "dist/*-*/*"
+          files: "dist/bin/*"
 
       - name: Publish
         uses: actions/setup-node@v6
