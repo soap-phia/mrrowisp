@@ -93,7 +93,11 @@ class WispBuilderImpl implements WispBuilder {
 	};
 
 	constructor(config?: Partial<Config>) {
-		this.config = JSON.parse(fs.readFileSync(wispConfigPath, "utf-8"));
+		if (fs.existsSync(wispConfigPath)) {
+			this.config = JSON.parse(fs.readFileSync(wispConfigPath, "utf-8"));
+		} else {
+			this.config = {};
+		}
 		if (config) {
 			this.config = { ...this.config, ...config };
 		}
@@ -271,9 +275,18 @@ class WispBuilderImpl implements WispBuilder {
 		return this;
 	}
 
+	private wss: WebSocketServer | null = null;
+
+	private ensureWSS(): WebSocketServer {
+		if (!this.wss) {
+			this.wss = new WebSocketServer({ noServer: true });
+		}
+		return this.wss;
+	}
+
 	route(req: IncomingMessage, socket: net.Socket, head: Buffer): void {
 		const port = this.config.port ?? 8080;
-		const wss = new WebSocketServer({ noServer: true });
+		const wss = this.ensureWSS();
 
 		wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
 			const client = new WebSocket(`ws://localhost:${port}`);
@@ -307,10 +320,6 @@ class WispBuilderImpl implements WispBuilder {
 			client.on("error", (err) => {
 				ws.close(1011, err.message);
 			});
-		});
-
-		socket.on("error", () => {
-			wss.close();
 		});
 	}
 
@@ -397,6 +406,6 @@ class WispBuilderImpl implements WispBuilder {
 	}
 }
 
-export function createMrrowisp(): WispBuilder {
-	return new WispBuilderImpl();
+export function createMrrowisp(config?: Partial<Config>): WispBuilder {
+	return new WispBuilderImpl(config);
 }

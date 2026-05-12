@@ -30,7 +30,7 @@ export type Config = {
 	dnsMethod?: string;
 	dnsResultOrder?: string;
 	enableTwisp?: boolean;
-	enableV2: boolean;
+	enableV2?: boolean;
 	motd?: string;
 	passwordAuth?: boolean;
 	passwordAuthRequired?: boolean;
