@@ -27,8 +27,8 @@ async function fetchRelease() {
     if (!res.ok) throw new Error(`GitHub API error: ${res.status} ${res.statusText}`);
     const release = await res.json();
 
-    const asset = release.assets.find(a => a.name === `${process.platform}-mrrowisp${ext}`);
-    if (!asset) throw new Error(`No asset found for platform: ${process.platform}`);
+    const asset = release.assets.find(a => a.name === `${key}-mrrowisp${ext}`);
+    if (!asset) throw new Error(`No asset found for platform/arch: ${key}`);
 
     return asset.browser_download_url;
 }
