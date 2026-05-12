@@ -1,6 +1,6 @@
 {
 	"name": "mrrowisp",
-	"version": "2.3.3",
+	"version": "2.4.0",
 	"module": "index.ts",
 	"type": "module",
 	"author": "soap-phia",
@@ -15,7 +15,7 @@
 		"chalk": "^5.6.2"
 	},
 	"peerDependencies": {
-		"typescript": "^5"
+		"typescript": "^6.0.3"
 	},
 	"dependencies": {
 		"ws": "^8.20.0"

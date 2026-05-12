@@ -1,5 +1,6 @@
 #!/bin/bash
 
+rm -rf dist
 mkdir -p dist
 
 if [ ! -f "main.go" ]; then
@@ -7,7 +8,7 @@ if [ ! -f "main.go" ]; then
 	exit 1
 fi
 
-for os in linux darwin; do
+for os in linux darwin win32; do
 	if [ "$os" = "win32" ]; then
 		goos="windows"
 	else

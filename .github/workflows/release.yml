@@ -3,209 +3,38 @@ name: Release
 on:
   push:
     tags:
-      - "v*"
-  workflow_dispatch:
+      - 'v*'
 
 permissions:
-  contents: write
-
-env:
-  NODE_PLATFORM_AMD64: "x64"
-  NODE_PLATFORM_ARM64: "arm64"
+  id-token: write
+  contents: read
 
 jobs:
-  build-go:
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            goos: linux
-            goarch: amd64
-            node_platform: linux
-            node_arch: x64
-            ext: ""
-          - os: ubuntu-latest
-            goos: linux
-            goarch: arm64
-            node_platform: linux
-            node_arch: arm64
-            ext: ""
-          - os: macos-latest
-            goos: darwin
-            goarch: amd64
-            node_platform: darwin
-            node_arch: x64
-            ext: ""
-          - os: macos-latest
-            goos: darwin
-            goarch: arm64
-            node_platform: darwin
-            node_arch: arm64
-            ext: ""
-          - os: windows-latest
-            goos: windows
-            goarch: amd64
-            node_platform: win32
-            node_arch: x64
-            ext: ".exe"
-          - os: windows-latest
-            goos: windows
-            goarch: arm64
-            node_platform: win32
-            node_arch: arm64
-            ext: ".exe"
-
-    runs-on: ${{ matrix.os }}
-
+  publish:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+      - uses: actions/checkout@v6
 
+      - name: Setup Go
       - uses: actions/setup-go@v5
         with:
           go-version: "1.21"
           check-latest: true
-
-      - name: Build Go binary
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-        run: |
-          mkdir -p dist/${{ matrix.node_platform }}-${{ matrix.node_arch }}
-          go build -v -o "dist/${{ matrix.node_platform }}-${{ matrix.node_arch }}/mrrowisp${{ matrix.ext }}" main.go
-
-      - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
+      
+      - name: Build
+      - run: |
+          npm ci
+          npm run build
+      - name: Release
+      - uses: softprops/action-gh-release@v2
         with:
-          name: mrrowisp-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/${{ matrix.node_platform }}-${{ matrix.node_arch }}/
+          files: "dist/*-*/*"
 
-  build-npm:
-    needs: build-go
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - name: Publish
+      - uses: actions/setup-node@v6
         with:
-          node-version: "20"
-
-      - name: Install TS deps
-        run: npm i
-
-      - name: Download all binary artifacts
-        uses: actions/download-artifact@v4
-
-      - name: Build TypeScript
-        run: npm run build:ts
-        env:
-          NODE_ENV: production
-
-      - name: Move binaries into dist/
-        run: |
-          for dir in mrrowisp-*; do
-            platform_dir="${dir#mrrowisp-}"
-            case "$platform_dir" in
-              linux-amd64) dest="linux-x64" ;;
-              linux-arm64) dest="linux-arm64" ;;
-              darwin-amd64) dest="darwin-x64" ;;
-              darwin-arm64) dest="darwin-arm64" ;;
-              windows-amd64) dest="win32-x64" ;;
-              windows-arm64) dest="win32-arm64" ;;
-            esac
-            mkdir -p "dist/$dest"
-            cp -r "$dir"/* "dist/$dest/"
-          done
-
-      - name: Fix paths for npm publishing
-        run: |
-          # dist/ contents become package root, so ../dist/ -> ./
-          sed -i 's|\.\./dist/|./|g' dist/path.js
-
-      - name: Fix package.json paths for npm publishing
-        run: |
-          node -e "
-            const pkg = JSON.parse(require('fs').readFileSync('dist/package.json', 'utf-8'));
-            pkg.main = pkg.main.replace('dist/', '');
-            if (pkg.types) pkg.types = pkg.types.replace('dist/', '');
-            require('fs').writeFileSync('dist/package.json', JSON.stringify(pkg, null, '\t') + '\n');
-          "
-
-      - name: Archive npm package
-        run: tar -czf mrrowisp-npm.tar.gz -C dist .
-
-      - name: Upload npm package
-        uses: actions/upload-artifact@v4
-        with:
-          name: mrrowisp-npm
-          path: mrrowisp-npm.tar.gz
-
-  release:
-    needs: [build-go, build-npm]
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-    permissions:
-      contents: write
-      id-token: write
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Get version
-        id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-
-      - name: Create release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: v${{ steps.version.outputs.version }}
-          tag_name: ${{ github.ref_name }}
-          generate_release_notes: true
-          files: |
-            mrrowisp-linux-amd64/mrrowisp
-            mrrowisp-linux-arm64/mrrowisp
-            mrrowisp-darwin-amd64/mrrowisp
-            mrrowisp-darwin-arm64/mrrowisp
-            mrrowisp-windows-amd64/mrrowisp.exe
-            mrrowisp-windows-arm64/mrrowisp.exe
-            mrrowisp-npm/mrrowisp-npm.tar.gz
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Publish npm package
-        run: |
-          mkdir -p /tmp/npm-pkg
-          tar -xzf mrrowisp-npm/mrrowisp-npm.tar.gz -C /tmp/npm-pkg
-          cd /tmp/npm-pkg
-          npm publish --provenance --access public
-
-  update-latest:
-    needs: build-go
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-
-      - name: Get latest release tag
-        id: latest
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: echo "tag=$(gh release view --json tagName --jq .tagName)" >> "$GITHUB_OUTPUT"
-
-      - name: Upload assets to latest release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          for dir in mrrowisp-*; do
-            [[ "$dir" == "mrrowisp-npm" ]] && continue
-            gh release upload "${{ steps.latest.outputs.tag }}" "$dir"/* --clobber
-          done
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+      - run: npm publish
