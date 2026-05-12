@@ -176,7 +176,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          registry-url: "https://registry.npmjs.org"
 
       - name: Publish npm package
         run: |
@@ -184,9 +183,6 @@ jobs:
           tar -xzf mrrowisp-npm/mrrowisp-npm.tar.gz -C /tmp/npm-pkg
           cd /tmp/npm-pkg
           npm publish --provenance --access public
-        env:
-          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
-          NPM_CONFIG_USERCONFIG: /home/runner/work/mrrowisp/mrrowisp/.npmrc
 
   update-latest:
     needs: build-go
