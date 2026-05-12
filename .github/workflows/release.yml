@@ -9,6 +9,9 @@ permissions:
   id-token: write
   contents: write
 
+env:
+  npm_config_ignore_scripts: true
+
 jobs:
   publish:
     runs-on: ubuntu-latest
