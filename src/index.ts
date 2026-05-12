@@ -1,2 +1,114 @@
-export { wispConfigPath, wispPath } from "./path.js";
-export * from "./server/index.js";
+import { spawn, type ChildProcess } from "child_process";
+import { binPath, configPath } from "./path.js";
+import * as fs from "node:fs";
+import { detect } from 'detect-port';
+import logger from "./logger.js";
+
+type MrrowispConfig = {
+    port: number;
+    allowTCP: boolean;
+    allowUDP: boolean;
+    allowDirectIP: boolean;
+	allowPrivateIPs: boolean;
+	allowLoopbackIPs: boolean;
+	tcpBufferSize: number;
+	bufferRemainingLength: number;
+	tcpNoDelay: boolean;
+	websocketTcpNoDelay: boolean;
+	streamLimitPerHost: number;
+	streamLimitTotal: number;
+	blacklist: {
+		hostnames: string[];
+		ports: number[]
+	};
+	whitelist: {
+		hostnames: string[];
+		ports: number[]
+	};
+	proxy: string;
+	websocketPermessageDeflate: boolean;
+	dnsServers: string[];
+	dnsTTLSeconds: number;
+	dnsMethod: "lookup" | "resolve";
+	dnsResultOrder: "ipv4first" | "ipv6first" | "verbatim";
+	enableTwisp: boolean;
+	enableV2: boolean;
+	motd: string;
+	passwordAuth: boolean;
+	passwordAuthRequired: boolean;
+	passwordUsers: Map<string, string>;
+	certAuth: boolean;
+	certAuthRequired: boolean;
+	certAuthPublicKeys: string[];
+	enableStreamConfirm: boolean;
+	maxConnectsPerSecond: number;
+	bandwidthLimitKbps: number;
+	connectionsLimitPerIP: number;
+	connectionWindowSeconds: number;
+	parseRealIP: boolean;
+	parseRealIPFrom: string[];
+	maxMessageSize: number;
+	staticDir: string;
+	enableStatsEndpoint: boolean;
+	statsEndpoint: string;
+	nonWSResponse: string;
+	logLevel: "debug" | "info" | "warn" | "error";
+
+}
+
+const defaultConfig: MrrowispConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+
+export class Mrrowisp {
+    config: MrrowispConfig;
+    process: ChildProcess | undefined;
+
+    constructor(config?: Partial<MrrowispConfig>) {
+        this.config = defaultConfig;
+        this.process = undefined;
+        if (config) {
+            this.config = { ...this.config, ...config };
+        }
+    }
+
+    async start() {
+        if (await detect(this.config.port) !== this.config.port) {
+            logger.error(`port ${this.config.port} is not available!! >w<`);
+            return;
+        }
+
+        this.process = spawn(binPath, ["--config", JSON.stringify(this.config)], {
+            stdio: "pipe"
+        });
+
+        this.process.stdout?.on("data", (data) => {
+            logger.info(data);
+        });
+
+        this.process.stderr?.on("data", (data) => {
+            logger.error(data);
+        });
+
+        this.process.on("close", (code) => {
+            logger.info(`child process exited with code ${code} D:`);
+            this.process = undefined;
+        });
+    }
+
+    async stop() {
+        if (this.process) {
+            this.process.kill("SIGTERM");
+            this.process = undefined;
+        } else {
+            logger.warn("mrrowisp is not running...");
+        }
+    }
+
+    async kill() {
+        if (this.process) {
+            this.process.kill("SIGKILL");
+            this.process = undefined;
+        } else {
+            logger.warn("mrrowisp is not running...");
+        }
+    }
+}

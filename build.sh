@@ -30,4 +30,9 @@ for os in linux darwin win32; do
     done
 done
 
-echo "Finished building. Binaries in ./bin/"
+echo "Finished building to ./bin/"
+
+cp package.json README.md LICENSE dist/
+cp example.config.json dist/config.json
+
+echo "Finished copying package files to ./dist/"

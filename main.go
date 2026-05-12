@@ -407,7 +407,7 @@ func main() {
 	} else {
 		http.HandleFunc("/", wispHandler)
 	}
-	fmt.Printf("Starting Mrrowisp on port %d. . .", cfg.Port)
+	fmt.Printf("Starting Mrrowisp on port %d. . .\n", cfg.Port)
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Port),
 		ReadHeaderTimeout: 5 * time.Second,
