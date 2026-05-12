@@ -26,13 +26,16 @@ func parseForwardedIP(r *http.Request, allowed map[string]struct{}) string {
 	if r == nil {
 		return ""
 	}
-	if len(allowed) > 0 {
-		host, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err == nil {
-			if _, ok := allowed[host]; !ok {
-				return ""
-			}
-		}
+	if len(allowed) == 0 {
+		return ""
+	}
+
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return ""
+	}
+	if _, ok := allowed[host]; !ok {
+		return ""
 	}
 
 	xff := r.Header.Get("X-Forwarded-For")
