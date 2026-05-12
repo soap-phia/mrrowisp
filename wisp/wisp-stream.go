@@ -84,12 +84,12 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 	if cfg.DNSCache != nil {
 		ips, err := cfg.DNSCache.LookupIPAddr(context.Background(), resolvedHostname)
 		if err != nil {
-			cfg.Logger.Warn("DNS lookup failed", "ip", s.wispConn.remoteIP, "hostname", hostname, "error", err)
+			cfg.Logger.Warn("DNS lookup failed", "ip", s.wispConn.remoteIP, "hostname", resolvedHostname, "error", err)
 			s.close(closeReasonUnreachable)
 			return
 		}
 		if len(ips) == 0 {
-			cfg.Logger.Warn("DNS returned no results", "ip", s.wispConn.remoteIP, "hostname", hostname)
+			cfg.Logger.Warn("DNS returned no results", "ip", s.wispConn.remoteIP, "hostname", resolvedHostname)
 			s.close(closeReasonUnreachable)
 			return
 		}
