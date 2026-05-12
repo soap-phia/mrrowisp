@@ -88,6 +88,7 @@ func (c *wispConnection) writeLoop() {
 		}
 		if _, err := bufs.WriteTo(c.netConn); err != nil {
 			c.isClosed.Store(true)
+			close(c.closeCh)
 			c.netConn.Close()
 			return
 		}
@@ -133,6 +134,11 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 	streamType := payload[0]
 	port := strconv.FormatUint(uint64(binary.LittleEndian.Uint16(payload[1:3])), 10)
 	hostname := string(payload[3:])
+
+	if len(hostname) > 2048 {
+		c.sendClosePacket(streamId, closeReasonInvalidInfo)
+		return
+	}
 
 	c.config.Logger.Debug("creating stream", "ip", c.remoteIP, "streamId", streamId, "hostname", hostname, "port", port, "type", streamType)
 
@@ -216,7 +222,7 @@ func (c *wispConnection) handleDataPacket(streamId uint32, payload []byte) {
 					return
 				}
 			}
-			go c.sendClosePacket(streamId, closeReasonInvalidInfo)
+			c.sendClosePacket(streamId, closeReasonInvalidInfo)
 			return
 		}
 		stream = v.(*wispStream)
@@ -228,14 +234,15 @@ func (c *wispConnection) handleDataPacket(streamId uint32, payload []byte) {
 		return
 	}
 
+	stream.pendingMutex.Lock()
 	if !stream.connReadyDone.Load() {
 		dataCopy := make([]byte, len(payload))
 		copy(dataCopy, payload)
-		stream.pendingMutex.Lock()
 		stream.pendingData = append(stream.pendingData, dataCopy)
 		stream.pendingMutex.Unlock()
 		return
 	}
+	stream.pendingMutex.Unlock()
 
 	_, err := stream.conn.Write(payload)
 	if err != nil {
@@ -332,11 +339,15 @@ func (c *wispConnection) deleteAllWispStreams() {
 		return true
 	})
 	if c.twispStreams != nil {
-		c.twispStreams.mu.RLock()
+		c.twispStreams.mu.Lock()
+		streams := make([]*twispStream, 0, len(c.twispStreams.streams))
 		for _, ts := range c.twispStreams.streams {
+			streams = append(streams, ts)
+		}
+		c.twispStreams.mu.Unlock()
+		for _, ts := range streams {
 			ts.close(closeReasonUnspecified)
 		}
-		c.twispStreams.mu.RUnlock()
 	}
 	defer func() { recover() }()
 	close(c.writeCh)

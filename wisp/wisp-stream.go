@@ -216,10 +216,10 @@ func (s *wispStream) readFromConnection() {
 				frameStart = 0
 				buf[0] = 0x82
 				buf[1] = 127
-				buf[2] = 0
-				buf[3] = 0
-				buf[4] = 0
-				buf[5] = 0
+				buf[2] = byte(totalPayload >> 56)
+				buf[3] = byte(totalPayload >> 48)
+				buf[4] = byte(totalPayload >> 40)
+				buf[5] = byte(totalPayload >> 32)
 				buf[6] = byte(totalPayload >> 24)
 				buf[7] = byte(totalPayload >> 16)
 				buf[8] = byte(totalPayload >> 8)
