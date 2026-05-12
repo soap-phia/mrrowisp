@@ -4,11 +4,15 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/binary"
 	"errors"
+	"time"
 )
 
 var errorInvalid = errors.New("invalid wisp v2 payload")
+
+const v2HandshakeTimeout = 15 * time.Second
 
 type extensions struct {
 	udp           bool
@@ -40,16 +44,19 @@ func (c *wispConnection) buildServerInfoPacket() []byte {
 
 	if c.config.CertAuth && len(c.config.CertAuthPublicKeys) > 0 {
 		challenge := make([]byte, 64)
-		rand.Read(challenge)
-		c.v2Challenge = challenge
+		if _, err := rand.Read(challenge); err != nil {
+			c.config.Logger.Warn("certificate auth challenge: rand.Read failed", "error", err)
+		} else {
+			c.v2Challenge = challenge
 
-		meta := make([]byte, 2+len(challenge))
-		if c.config.CertAuthRequired {
-			meta[0] = 1
+			meta := make([]byte, 2+len(challenge))
+			if c.config.CertAuthRequired {
+				meta[0] = 1
+			}
+			meta[1] = sigEd25519
+			copy(meta[2:], challenge)
+			extensions = addExtension(extensions, extensionCertificateAuth, meta)
 		}
-		meta[1] = sigEd25519
-		copy(meta[2:], challenge)
-		extensions = addExtension(extensions, extensionCertificateAuth, meta)
 	}
 
 	if c.config.Motd != "" {
@@ -87,7 +94,10 @@ func parseClientInfo(payload []byte) (*extensions, error) {
 	exts := &extensions{}
 	data := payload[2:]
 
-	for len(data) >= 5 {
+	for len(data) > 0 {
+		if len(data) < 5 {
+			return nil, errorInvalid
+		}
 		extID := data[0]
 		extLen := binary.LittleEndian.Uint32(data[1:5])
 		data = data[5:]
@@ -143,6 +153,7 @@ func parseClientInfo(payload []byte) (*extensions, error) {
 
 func (c *wispConnection) v2Handshake() {
 	c.handshakeDone = make(chan struct{})
+	_ = c.netConn.SetReadDeadline(time.Now().Add(v2HandshakeTimeout))
 
 	infoPayload := c.buildServerInfoPacket()
 	c.sendRawFrame(infoPayload)
@@ -170,7 +181,10 @@ func (c *wispConnection) handleInfo(streamId uint32, payload []byte) {
 
 	if c.config.PasswordAuth && clientExts.passwordUsername != "" {
 		expectedPassword, userExists := c.config.PasswordUsers[clientExts.passwordUsername]
-		if userExists && expectedPassword == clientExts.passwordPassword {
+		expBytes := []byte(expectedPassword)
+		gotBytes := []byte(clientExts.passwordPassword)
+		ok := userExists && len(expBytes) == len(gotBytes) && subtle.ConstantTimeCompare(expBytes, gotBytes) == 1
+		if ok {
 			authPassed = true
 		} else {
 			c.sendClosePacket(0, closeReasonAuthBadPassword)
@@ -195,10 +209,12 @@ func (c *wispConnection) handleInfo(streamId uint32, payload []byte) {
 		return
 	}
 
+	c.authenticated.Store(authPassed)
 	c.streamConfirm = c.config.EnableStreamConfirm && clientExts.streamConfirm
 
 	c.sendPacket(0, c.config.BufferRemainingLength)
 
+	_ = c.netConn.SetReadDeadline(time.Time{})
 	close(c.handshakeDone)
 	c.handshakeDone = nil
 }

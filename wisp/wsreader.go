@@ -12,7 +12,6 @@ func (c *wispConnection) readLoop() {
 	reader := bufio.NewReaderSize(c.netConn, 64*1024)
 
 	const PayloadBufferSize = 256 * 1024
-	const DefaultMaxPayloadSize = 10 * 1024 * 1024
 	PayloadBuffer := make([]byte, PayloadBufferSize)
 	var headerBuffer [14]byte
 
@@ -21,9 +20,16 @@ func (c *wispConnection) readLoop() {
 			return
 		}
 
-		data := headerBuffer[0] & 0x0F
+		fin := headerBuffer[0]&0x80 != 0
+		rsv := headerBuffer[0] & 0x70
+		opcode := headerBuffer[0] & 0x0F
 		masked := headerBuffer[1]&0x80 != 0
 		lengthCode := headerBuffer[1] & 0x7F
+
+		if rsv != 0 || !masked || !fin {
+			c.sendWSClose(1002)
+			return
+		}
 
 		var payloadLen uint64
 		switch {
@@ -41,6 +47,12 @@ func (c *wispConnection) readLoop() {
 			payloadLen = binary.BigEndian.Uint64(headerBuffer[2:10])
 		}
 
+		isControlFrame := opcode >= 0x8
+		if isControlFrame && payloadLen > 125 {
+			c.sendWSClose(1002)
+			return
+		}
+
 		var maskKey [4]byte
 		if masked {
 			if _, err := io.ReadFull(reader, maskKey[:]); err != nil {
@@ -48,7 +60,7 @@ func (c *wispConnection) readLoop() {
 			}
 		}
 
-		if payloadLen > DefaultMaxPayloadSize || (c.config.MaxMessageSize > 0 && payloadLen > uint64(c.config.MaxMessageSize)) {
+		if payloadLen > c.maxPayloadSize() {
 			c.sendWSClose(1009)
 			return
 		}
@@ -70,7 +82,7 @@ func (c *wispConnection) readLoop() {
 			maskXOR(payload, maskKey)
 		}
 
-		switch data {
+		switch opcode {
 		case 0x2:
 			c.handleWispFrame(payload)
 
@@ -96,6 +108,15 @@ func (c *wispConnection) readLoop() {
 			continue
 		}
 	}
+}
+
+const DefaultMaxPayloadSize = 256 * 1024
+
+func (c *wispConnection) maxPayloadSize() uint64 {
+	if c != nil && c.config != nil && c.config.MaxMessageSize > 0 {
+		return uint64(c.config.MaxMessageSize)
+	}
+	return DefaultMaxPayloadSize
 }
 
 func (c *wispConnection) handleWispFrame(packet []byte) {

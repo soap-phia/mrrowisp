@@ -75,18 +75,41 @@ func (d *DNSCache) expire() {
 func (d *DNSCache) initResolver(method string) {
 	method = strings.ToLower(strings.TrimSpace(method))
 	if method == "resolve" && len(d.servers) > 0 {
+		server := firstDNSServer(d.servers)
+		if server == "" {
+			d.resolver = net.DefaultResolver
+			return
+		}
 		d.resolver = &net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
 				dialer := net.Dialer{
 					Timeout: 5 * time.Second,
 				}
-				return dialer.DialContext(ctx, "udp", d.servers[0])
+				return dialer.DialContext(ctx, "udp", server)
 			},
 		}
 		return
 	}
 	d.resolver = net.DefaultResolver
+}
+
+func firstDNSServer(servers []string) string {
+	for _, server := range servers {
+		server = strings.TrimSpace(server)
+		if server == "" {
+			continue
+		}
+		return normalizeDNSServer(server)
+	}
+	return ""
+}
+
+func normalizeDNSServer(server string) string {
+	if _, _, err := net.SplitHostPort(server); err == nil {
+		return server
+	}
+	return net.JoinHostPort(server, "53")
 }
 
 func (d *DNSCache) LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error) {

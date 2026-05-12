@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"mrrowisp/wisp"
 )
@@ -396,7 +397,12 @@ func main() {
 		http.HandleFunc("/", wispHandler)
 	}
 	fmt.Printf("Starting Mrrowisp on port %d. . .", cfg.Port)
-	err = http.ListenAndServe(fmt.Sprintf(":%d", cfg.Port), nil)
+	server := &http.Server{
+		Addr:              fmt.Sprintf(":%d", cfg.Port),
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+	err = server.ListenAndServe()
 	if err != nil {
 		fmt.Printf("Failed to start Mrrowisp: %v", err)
 	}

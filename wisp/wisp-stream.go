@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"golang.org/x/net/proxy"
 )
@@ -27,14 +28,16 @@ type wispStream struct {
 
 	pendingMutex sync.Mutex
 	pendingData  [][]byte
+	pendingBytes int
 }
+
+const dnsLookupTimeout = 10 * time.Second
 
 func (s *wispStream) handleConnect(streamType uint8, port string, hostname string) {
 	defer s.signalConnReady()
 
 	cfg := s.wispConn.config
-	s.hostname = strings.ToLower(strings.TrimSpace(hostname))
-	s.hostname = strings.TrimSuffix(s.hostname, ".")
+	s.hostname = normalizeTargetHostname(hostname)
 	if s.hostname == "" {
 		s.close(closeReasonInvalidInfo)
 		return
@@ -70,19 +73,15 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 			s.close(closeReasonBlocked)
 			return
 		}
-		if !cfg.AllowPrivateIPs && isPrivateIP(ip) {
-			s.close(closeReasonBlocked)
-			return
-		}
-		if !cfg.AllowLoopbackIPs && ip.IsLoopback() {
+		if !isAllowedTargetIP(ip, cfg) {
 			s.close(closeReasonBlocked)
 			return
 		}
 		resolvedHostname = ip.String()
-	}
-
-	if cfg.DNSCache != nil {
-		ips, err := cfg.DNSCache.LookupIPAddr(context.Background(), resolvedHostname)
+	} else if cfg.DNSCache != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), dnsLookupTimeout)
+		ips, err := cfg.DNSCache.LookupIPAddr(ctx, resolvedHostname)
+		cancel()
 		if err != nil {
 			cfg.Logger.Warn("DNS lookup failed", "ip", s.wispConn.remoteIP, "hostname", resolvedHostname, "error", err)
 			s.close(closeReasonUnreachable)
@@ -93,17 +92,13 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 			s.close(closeReasonUnreachable)
 			return
 		}
-		resolvedHostname = ips[0].IP.String()
-		if ip := net.ParseIP(resolvedHostname); ip != nil {
-			if !cfg.AllowPrivateIPs && isPrivateIP(ip) {
-				s.close(closeReasonBlocked)
-				return
-			}
-			if !cfg.AllowLoopbackIPs && ip.IsLoopback() {
-				s.close(closeReasonBlocked)
-				return
-			}
+		selected, ok := firstAllowedIP(ips, cfg)
+		if !ok {
+			cfg.Logger.Warn("DNS returned only blocked IPs", "ip", s.wispConn.remoteIP, "hostname", resolvedHostname)
+			s.close(closeReasonBlocked)
+			return
 		}
+		resolvedHostname = selected
 	}
 
 	s.streamType = streamType
@@ -165,6 +160,7 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 	s.pendingMutex.Lock()
 	pending := s.pendingData
 	s.pendingData = nil
+	s.pendingBytes = 0
 	s.pendingMutex.Unlock()
 	for _, data := range pending {
 		if !s.isOpen.Load() {

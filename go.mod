@@ -1,11 +1,11 @@
 module mrrowisp
 
-go 1.21
+go 1.26.3
 
 require (
 	github.com/creack/pty v1.1.21
 	github.com/lxzan/gws v1.8.3
-	golang.org/x/net v0.24.0
+	golang.org/x/net v0.53.0
 )
 
 require (
