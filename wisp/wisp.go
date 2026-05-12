@@ -77,6 +77,12 @@ type Config struct {
 	Dialer      net.Dialer
 }
 
+const (
+	defaultStreamLimitPerHost    = 512
+	defaultStreamLimitTotal      = 16384
+	defaultConnectionsLimitPerIP = 120
+)
+
 func DefaultConfig() *Config {
 	return &Config{
 		AllowTCP:                true,
@@ -88,11 +94,15 @@ func DefaultConfig() *Config {
 		BufferRemainingLength:   65536,
 		TcpNoDelay:              true,
 		WebsocketTcpNoDelay:     true,
+		StreamLimitPerHost:      defaultStreamLimitPerHost,
+		StreamLimitTotal:        defaultStreamLimitTotal,
+		MaxConnectsPerSecond:    maxConnectsPerSecond,
 		PasswordUsers:           make(map[string]string),
 		DnsTTLSeconds:           120,
 		DnsMethod:               "lookup",
 		DnsResultOrder:          "verbatim",
 		ConnectionWindowSeconds: 1,
+		ConnectionsLimitPerIP:   defaultConnectionsLimitPerIP,
 	}
 }
 

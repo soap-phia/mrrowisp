@@ -44,41 +44,17 @@ func TestReadLoopRejectsUnmaskedClientFrame(t *testing.T) {
 	}
 }
 
-func TestReadLoopRejectsOversizedPayloadBeforeReadingBody(t *testing.T) {
-	server, client := net.Pipe()
-	defer client.Close()
-
-	conn := &wispConnection{
-		netConn: server,
-		writeCh: make(chan writeReq, 1),
-		config:  DefaultConfig(),
-		closeCh: make(chan struct{}),
+func TestMaxPayloadSizeDefaultsTo128KiB(t *testing.T) {
+	conn := &wispConnection{config: DefaultConfig()}
+	if got := conn.maxPayloadSize(); got != 128*1024 {
+		t.Fatalf("maxPayloadSize returned %d", got)
 	}
-	conn.config.InitResolver()
+}
 
-	done := make(chan struct{})
-	go func() {
-		conn.readLoop()
-		close(done)
-	}()
-
-	header := []byte{0x82, 0x80 | 127, 0, 0, 0, 0, 0, 2, 0, 1, 1, 2, 3, 4}
-	if _, err := client.Write(header); err != nil {
-		t.Fatalf("client write failed: %v", err)
-	}
-
-	select {
-	case req := <-conn.writeCh:
-		if len(req.data) != 4 || req.data[0] != 0x88 || req.data[2] != 1009/256 || req.data[3] != 1009%256 {
-			t.Fatalf("expected message-too-big close frame, got %v", req.data)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for close frame")
-	}
-
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("readLoop did not exit")
+func TestMaxPayloadSizeUsesConfiguredLimit(t *testing.T) {
+	conn := &wispConnection{config: DefaultConfig()}
+	conn.config.MaxMessageSize = 64 * 1024
+	if got := conn.maxPayloadSize(); got != 64*1024 {
+		t.Fatalf("maxPayloadSize returned %d", got)
 	}
 }

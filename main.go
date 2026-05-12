@@ -69,6 +69,13 @@ type Config struct {
 	LogLevel                string   `json:"logLevel"`
 }
 
+const (
+	defaultStreamLimitPerHost    = 512
+	defaultStreamLimitTotal      = 16384
+	defaultMaxConnectsPerSecond  = 20
+	defaultConnectionsLimitPerIP = 120
+)
+
 func defaultConfig() Config {
 	return Config{
 		Port:                       6001,
@@ -81,6 +88,8 @@ func defaultConfig() Config {
 		BufferRemainingLength:      65536,
 		TcpNoDelay:                 true,
 		WebsocketTcpNoDelay:        true,
+		StreamLimitPerHost:         defaultStreamLimitPerHost,
+		StreamLimitTotal:           defaultStreamLimitTotal,
 		WebsocketPermessageDeflate: false,
 		EnableTwisp:                false,
 		EnableV2:                   false,
@@ -90,10 +99,12 @@ func defaultConfig() Config {
 		CertAuth:                   false,
 		CertAuthRequired:           false,
 		EnableStreamConfirm:        false,
+		MaxConnectsPerSecond:       defaultMaxConnectsPerSecond,
 		DnsTTLSeconds:              120,
 		DnsMethod:                  "lookup",
 		DnsResultOrder:             "verbatim",
 		ConnectionWindowSeconds:    1,
+		ConnectionsLimitPerIP:      defaultConnectionsLimitPerIP,
 		ParseRealIP:                true,
 		ParseRealIPFrom:            []string{"127.0.0.1"},
 		LogLevel:                   "info",

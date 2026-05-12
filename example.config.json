@@ -9,8 +9,8 @@
 	"bufferRemainingLength": 1024,
 	"tcpNoDelay": true,
 	"websocketTcpNoDelay": true,
-	"streamLimitPerHost": 0,
-	"streamLimitTotal": 0,
+	"streamLimitPerHost": 512,
+	"streamLimitTotal": 16384,
 	"blacklist": {
 		"hostnames": [],
 		"ports": []
@@ -37,7 +37,7 @@
 	"enableStreamConfirm": false,
 	"maxConnectsPerSecond": 20,
 	"bandwidthLimitKbps": 0,
-	"connectionsLimitPerIP": 0,
+	"connectionsLimitPerIP": 120,
 	"connectionWindowSeconds": 1,
 	"parseRealIP": true,
 	"parseRealIPFrom": ["127.0.0.1"],
