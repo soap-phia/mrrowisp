@@ -22,10 +22,13 @@ jobs:
           go-version: "1.21"
           check-latest: true
       
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
       - name: Build
         run: |
-          npm i
-          npm run build
+          bun i
+          bun run build
       - name: Release
         uses: softprops/action-gh-release@v2
         with:
