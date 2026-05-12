@@ -4,7 +4,7 @@
 		"type": "git",
 		"url": "https://github.com/soap-phia/mrrowisp"
 	},
-	"version": "2.8.1",
+	"version": "2.9.0",
 	"module": "index.ts",
 	"type": "module",
 	"author": "soap-phia",
