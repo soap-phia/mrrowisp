@@ -48,6 +48,7 @@ type writeReq struct {
 }
 
 const maxConcurrentDials = 50
+const maxPendingStreamBytes = 16 * 1024 * 1024
 
 type wispConnection struct {
 	netConn        net.Conn
@@ -56,6 +57,7 @@ type wispConnection struct {
 	cachedStreamId uint32
 	cachedStream   unsafe.Pointer
 	isClosed       atomic.Bool
+	shutdownOnce   sync.Once
 	config         *Config
 	twispStreams   *twispRegistry
 	connectLimiter *connectRateLimiter
@@ -65,17 +67,24 @@ type wispConnection struct {
 	handshakeDone chan struct{}
 	streamConfirm bool
 	v2Challenge   []byte
+	authenticated atomic.Bool
 
 	dialSem chan struct{}
 	closeCh chan struct{}
 }
 
+// terminateNetwork closes the client socket and signals closeCh once so dial
+// goroutines and other waiters unblock. Safe to call from any goroutine.
+func (c *wispConnection) terminateNetwork() {
+	c.shutdownOnce.Do(func() {
+		c.isClosed.Store(true)
+		close(c.closeCh)
+		c.netConn.Close()
+	})
+}
+
 func (c *wispConnection) close() {
-	if !c.isClosed.CompareAndSwap(false, true) {
-		return
-	}
-	close(c.closeCh)
-	c.netConn.Close()
+	c.terminateNetwork()
 }
 
 func (c *wispConnection) writeLoop() {
@@ -87,9 +96,7 @@ func (c *wispConnection) writeLoop() {
 			bufs = append(bufs, r.data)
 		}
 		if _, err := bufs.WriteTo(c.netConn); err != nil {
-			c.isClosed.Store(true)
-			close(c.closeCh)
-			c.netConn.Close()
+			c.terminateNetwork()
 			return
 		}
 	}
@@ -135,7 +142,7 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 	port := strconv.FormatUint(uint64(binary.LittleEndian.Uint16(payload[1:3])), 10)
 	hostname := string(payload[3:])
 
-	if len(hostname) > 2048 {
+	if len(hostname) > 2048 || strings.IndexByte(hostname, 0) >= 0 {
 		c.sendClosePacket(streamId, closeReasonInvalidInfo)
 		return
 	}
@@ -149,7 +156,8 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 	}
 
 	if streamType == streamTypeTerm {
-		if !c.config.EnableTwisp {
+		if !c.config.EnableTwisp || !c.twispAuthorized() {
+			c.config.Logger.Warn("terminal stream blocked", "ip", c.remoteIP)
 			c.sendClosePacket(streamId, closeReasonBlocked)
 			return
 		}
@@ -168,8 +176,14 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 		return
 	}
 
+	normalizedHostname := normalizeTargetHostname(hostname)
+	if normalizedHostname == "" {
+		c.sendClosePacket(streamId, closeReasonInvalidInfo)
+		return
+	}
+
 	if c.config.StreamLimiter != nil {
-		if !c.config.StreamLimiter.allow(strings.ToLower(strings.TrimSpace(hostname)), c.config.StreamLimitPerHost, c.config.StreamLimitTotal) {
+		if !c.config.StreamLimiter.allow(normalizedHostname, c.config.StreamLimitPerHost, c.config.StreamLimitTotal) {
 			c.config.Logger.Warn("stream limit reached", "ip", c.remoteIP, "hostname", hostname)
 			c.sendClosePacket(streamId, closeReasonThrottled)
 			return
@@ -180,7 +194,7 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 		wispConn:  c,
 		streamId:  streamId,
 		connReady: make(chan struct{}),
-		hostname:  strings.ToLower(strings.TrimSpace(hostname)),
+		hostname:  normalizedHostname,
 	}
 	stream.isOpen.Store(true)
 
@@ -192,7 +206,7 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 		return
 	}
 
-	go stream.handleConnect(streamType, port, hostname)
+	go stream.handleConnect(streamType, port, normalizedHostname)
 }
 
 func (c *wispConnection) handleDataPacket(streamId uint32, payload []byte) {
@@ -236,9 +250,15 @@ func (c *wispConnection) handleDataPacket(streamId uint32, payload []byte) {
 
 	stream.pendingMutex.Lock()
 	if !stream.connReadyDone.Load() {
+		if stream.pendingBytes+len(payload) > maxPendingStreamBytes {
+			stream.pendingMutex.Unlock()
+			stream.close(closeReasonThrottled)
+			return
+		}
 		dataCopy := make([]byte, len(payload))
 		copy(dataCopy, payload)
 		stream.pendingData = append(stream.pendingData, dataCopy)
+		stream.pendingBytes += len(dataCopy)
 		stream.pendingMutex.Unlock()
 		return
 	}
@@ -257,6 +277,10 @@ func (c *wispConnection) handleDataPacket(streamId uint32, payload []byte) {
 			c.sendPacket(streamId, stream.bufferRemaining)
 		}
 	}
+}
+
+func (c *wispConnection) twispAuthorized() bool {
+	return c.isV2 && c.authenticated.Load()
 }
 
 func (c *wispConnection) handleClosePacket(streamId uint32, payload []byte) {
@@ -331,7 +355,7 @@ func (c *wispConnection) deleteWispStream(streamId uint32) {
 }
 
 func (c *wispConnection) deleteAllWispStreams() {
-	c.isClosed.Store(true)
+	c.terminateNetwork()
 	c.config.Logger.Info("connection closed", "ip", c.remoteIP)
 	c.streams.Range(func(key, value any) bool {
 		stream := value.(*wispStream)

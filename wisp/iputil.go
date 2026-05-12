@@ -63,3 +63,36 @@ func isPrivateIP(ip net.IP) bool {
 	}
 	return ip.IsPrivate()
 }
+
+func normalizeTargetHostname(host string) string {
+	host = strings.TrimSpace(strings.ToLower(host))
+	host = strings.TrimSuffix(host, ".")
+	return host
+}
+
+func isAllowedTargetIP(ip net.IP, cfg *Config) bool {
+	if ip == nil {
+		return false
+	}
+	if ip.IsUnspecified() || ip.IsMulticast() {
+		return false
+	}
+	if cfg != nil {
+		if !cfg.AllowLoopbackIPs && ip.IsLoopback() {
+			return false
+		}
+		if !cfg.AllowPrivateIPs && (ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()) {
+			return false
+		}
+	}
+	return true
+}
+
+func firstAllowedIP(ips []net.IPAddr, cfg *Config) (string, bool) {
+	for _, addr := range ips {
+		if isAllowedTargetIP(addr.IP, cfg) {
+			return addr.IP.String(), true
+		}
+	}
+	return "", false
+}

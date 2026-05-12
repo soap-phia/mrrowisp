@@ -146,9 +146,12 @@ func CreateWispHandler(config *Config) http.HandlerFunc {
 
 	upgrader := gws.NewUpgrader(&upgradeHandler{}, &gws.ServerOption{
 		PermessageDeflate: gws.PermessageDeflate{
-			Enabled: config.WebsocketPermessageDeflate,
+			Enabled: false,
 		},
 	})
+	if config.WebsocketPermessageDeflate {
+		config.Logger.Warn("websocket permessage-deflate disabled because raw frame handling does not support compressed payloads")
+	}
 
 	return func(w http.ResponseWriter, r *http.Request) {
 		useV2 := config.EnableV2 && r.Header.Get("Sec-WebSocket-Protocol") != ""
