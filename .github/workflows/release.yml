@@ -9,9 +9,6 @@ permissions:
   id-token: write
   contents: write
 
-env:
-  npm_config_ignore_scripts: true
-
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -30,7 +27,7 @@ jobs:
 
       - name: Build
         run: |
-          bun i
+          bun i --ignore-scripts
           bun run build
       - name: Release
         uses: softprops/action-gh-release@v2

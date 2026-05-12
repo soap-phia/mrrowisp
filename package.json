@@ -4,7 +4,7 @@
 		"type": "git",
 		"url": "https://github.com/soap-phia/mrrowisp"
 	},
-	"version": "2.6.9",
+	"version": "2.6.9420",
 	"module": "index.ts",
 	"type": "module",
 	"author": "soap-phia",
@@ -28,7 +28,7 @@
 		"ws": "^8.20.0"
 	},
 	"scripts": {
-		"postinstall": "node scripts/install.js",
+		"postinstall": "node scripts/install.mjs",
 		"build:ts": "tsc && cp ./src/types.d.ts ./dist/types.d.ts && cp ./example.config.json ./dist/config.json && cp ./LICENSE ./package.json ./README.md ./dist/",
 		"build:bin": "bash build.sh",
 		"build": "bun run build:ts && bun run build:bin"
