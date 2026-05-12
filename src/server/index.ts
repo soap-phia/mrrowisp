@@ -15,6 +15,7 @@ class WispServerImpl implements WispServer {
 	readonly config: Config;
 	private _running: boolean = true;
 	private listeners: EventListeners;
+	private wss: WebSocketServer | null = null;
 
 	constructor(process: ChildProcess, config: Config, listeners: EventListeners) {
 		this.process = process;
@@ -79,6 +80,48 @@ class WispServerImpl implements WispServer {
 			arr.splice(idx, 1);
 		}
 		return this;
+	}
+
+	route(req: IncomingMessage, socket: net.Socket, head: Buffer): void {
+		const port = this.config.port ?? 8080;
+		if (!this.wss) {
+			this.wss = new WebSocketServer({ noServer: true });
+		}
+		const wss = this.wss;
+
+		wss.handleUpgrade(req, socket, head, (ws: WebSocket) => {
+			const client = new WebSocket(`ws://localhost:${port}`);
+
+			client.on("open", () => {
+				ws.on("message", (data: Buffer) => {
+					if (client.readyState === WebSocket.OPEN) {
+						client.send(data);
+					}
+				});
+
+				ws.on("close", () => {
+					client.close();
+				});
+
+				ws.on("error", () => {
+					client.close();
+				});
+			});
+
+			client.on("message", (data: Buffer) => {
+				if (ws.readyState === WebSocket.OPEN) {
+					ws.send(data);
+				}
+			});
+
+			client.on("close", () => {
+				ws.close();
+			});
+
+			client.on("error", (err) => {
+				ws.close(1011, err.message);
+			});
+		});
 	}
 }
 

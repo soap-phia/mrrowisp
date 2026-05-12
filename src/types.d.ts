@@ -69,6 +69,7 @@ export type WispServer = {
 	readonly running: boolean;
 	stop(): Promise<void>;
 	kill(signal?: NodeJS.Signals): void;
+	route(req: IncomingMessage, socket: Socket, head: Buffer): void;
 	on<K extends keyof WispEvents>(event: K, listener: WispEvents[K]): WispServer;
 	off<K extends keyof WispEvents>(event: K, listener: WispEvents[K]): WispServer;
 };
