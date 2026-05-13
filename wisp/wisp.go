@@ -75,6 +75,11 @@ type Config struct {
 	DNSCache    *DNSCache
 	ReadBufPool sync.Pool
 	Dialer      net.Dialer
+
+	BanEnabled    bool
+	BanDuration   time.Duration
+	BanMaxStrikes int
+	BanList       *BanList
 }
 
 const (
@@ -132,6 +137,9 @@ func (c *Config) InitResolver() {
 	if c.ParseRealIPFrom == nil {
 		c.ParseRealIPFrom = make(map[string]struct{})
 	}
+	if c.BanEnabled {
+		c.BanList = newBanList(c.BanDuration, c.BanMaxStrikes)
+	}
 }
 
 type upgradeHandler struct {
@@ -167,8 +175,20 @@ func CreateWispHandler(config *Config) http.HandlerFunc {
 		useV2 := config.EnableV2 && r.Header.Get("Sec-WebSocket-Protocol") != ""
 		remoteIP := remoteIPFromRequest(r, config)
 		config.Logger.Info("incoming connection", "ip", remoteIP, "path", r.URL.Path, "origin", r.Header.Get("Origin"))
+
+		if config.BanList != nil && config.BanList.IsBanned(remoteIP) {
+			config.Logger.Warn("banned ip rejected", "ip", remoteIP)
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+
 		if config.ConnectionLimiter != nil {
 			if !config.ConnectionLimiter.Allow(remoteIP) {
+				if config.BanList != nil {
+					if banned := config.BanList.Strike(remoteIP); banned {
+						config.Logger.Warn("ip banned", "ip", remoteIP)
+					}
+				}
 				w.WriteHeader(http.StatusTooManyRequests)
 				if config.NonWSResponse != "" {
 					_, _ = w.Write([]byte(config.NonWSResponse))

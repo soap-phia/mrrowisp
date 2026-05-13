@@ -9,8 +9,8 @@
 	"bufferRemainingLength": 1024,
 	"tcpNoDelay": true,
 	"websocketTcpNoDelay": true,
-	"streamLimitPerHost": 512,
-	"streamLimitTotal": 16384,
+	"streamLimitPerHost": 64,
+	"streamLimitTotal": 2048,
 	"blacklist": {
 		"hostnames": [],
 		"ports": []
@@ -35,16 +35,17 @@
 	"certAuthRequired": false,
 	"certAuthPublicKeys": [],
 	"enableStreamConfirm": false,
-	"maxConnectsPerSecond": 20,
-	"bandwidthLimitKbps": 0,
-	"connectionsLimitPerIP": 120,
-	"connectionWindowSeconds": 1,
+	"maxConnectsPerSecond": 5,
+	"bandwidthLimitKbps": 5000,
+	"connectionsLimitPerIP": 20,
+	"connectionWindowSeconds": 10,
 	"parseRealIP": true,
 	"parseRealIPFrom": ["127.0.0.1"],
 	"maxMessageSize": 0,
 	"staticDir": "",
-	"enableStatsEndpoint": false,
-	"statsEndpoint": "/stats",
 	"nonWSResponse": "",
-	"logLevel": "info"
+	"logLevel": "info",
+	"banEnabled": true,
+	"banDurationSeconds": 3600,
+	"banMaxStrikes": 5
 }

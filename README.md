@@ -66,7 +66,6 @@ const server = await createMrrowisp({
 	streamLimitPerHost: 32,
 	allowDirectIP: false,
 	allowPrivateIPs: false,
-	enableStatsEndpoint: true,
 }).start();
 
 await server.stop();
@@ -253,8 +252,6 @@ Copy `example.config.json` to `config.json` and edit as needed:
 	"parseRealIPFrom": ["127.0.0.1"],
 	"maxMessageSize": 0,
 	"staticDir": "",
-	"enableStatsEndpoint": false,
-	"statsEndpoint": "/stats",
 	"nonWSResponse": "",
 	"logLevel": "info"
 }
@@ -305,8 +302,6 @@ Copy `example.config.json` to `config.json` and edit as needed:
 | `parseRealIPFrom`            | []string | Allowed proxies for forwarded IP parsing      |
 | `maxMessageSize`             | int      | Max WebSocket message size (bytes)            |
 | `staticDir`                  | string   | Static files directory                        |
-| `enableStatsEndpoint`        | bool     | Enable stats endpoint                         |
-| `statsEndpoint`              | string   | Stats endpoint path                           |
 | `nonWSResponse`              | string   | Response body for non-websocket requests      |
 | `logLevel`                   | string   | Log level (debug, info, warn, error)          |
 

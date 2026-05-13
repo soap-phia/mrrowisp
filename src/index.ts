@@ -49,8 +49,6 @@ type MrrowispConfig = {
 	parseRealIPFrom: string[];
 	maxMessageSize: number;
 	staticDir: string;
-	enableStatsEndpoint: boolean;
-	statsEndpoint: string;
 	nonWSResponse: string;
 	logLevel: "debug" | "info" | "warn" | "error";
 

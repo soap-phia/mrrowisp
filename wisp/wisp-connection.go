@@ -151,6 +151,12 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 
 	if !c.connectLimiter.allow() {
 		c.config.Logger.Warn("connect rate limit exceeded", "ip", c.remoteIP)
+		if c.config.BanList != nil {
+			if banned := c.config.BanList.Strike(c.remoteIP); banned {
+				c.config.Logger.Warn("ip banned", "ip", c.remoteIP)
+				c.terminateNetwork()
+			}
+		}
 		c.sendClosePacket(streamId, closeReasonThrottled)
 		return
 	}

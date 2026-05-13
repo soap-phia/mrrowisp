@@ -67,6 +67,10 @@ type Config struct {
 	StaticDir               string   `json:"staticDir"`
 	NonWSResponse           string   `json:"nonWSResponse"`
 	LogLevel                string   `json:"logLevel"`
+
+	BanEnabled         bool `json:"banEnabled"`
+	BanDurationSeconds int  `json:"banDurationSeconds"`
+	BanMaxStrikes      int  `json:"banMaxStrikes"`
 }
 
 const (
@@ -108,6 +112,9 @@ func defaultConfig() Config {
 		ParseRealIP:                true,
 		ParseRealIPFrom:            []string{"127.0.0.1"},
 		LogLevel:                   "info",
+		BanEnabled:                 false,
+		BanDurationSeconds:         3600,
+		BanMaxStrikes:              10,
 	}
 }
 
@@ -280,6 +287,9 @@ func createWispConfig(cfg Config) *wisp.Config {
 		MaxMessageSize:             cfg.MaxMessageSize,
 		NonWSResponse:              cfg.NonWSResponse,
 		LogLevel:                   cfg.LogLevel,
+		BanEnabled:                 cfg.BanEnabled,
+		BanDuration:                time.Duration(cfg.BanDurationSeconds) * time.Second,
+		BanMaxStrikes:              cfg.BanMaxStrikes,
 	}
 
 	if wispCfg.PasswordUsers == nil {
