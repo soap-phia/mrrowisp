@@ -54,6 +54,7 @@ const server = await createMrrowisp({
 	allowUDP: true,
 	enableTwisp: true,
 	motd: "mrrow merp purr :3",
+	allowedOrigins: ["https://example.com"],
 	blacklist: {
 		hostnames: ["truthsocial.com"],
 	},
@@ -204,14 +205,14 @@ server.kill("SIGTERM");
 
 ## Configuration
 
-Copy `example.config.json` to `config.json` and edit as needed:
+Copy `example.config.json` to `config.json` and edit as needed. The example defaults are tuned for safer public exposure (direct IP blocked, ban enabled).
 
 ```json
 {
 	"port": "6001",
 	"allowTCP": true,
 	"allowUDP": true,
-	"allowDirectIP": true,
+	"allowDirectIP": false,
 	"allowPrivateIPs": false,
 	"allowLoopbackIPs": false,
 	"tcpBufferSize": 65535,
@@ -252,8 +253,13 @@ Copy `example.config.json` to `config.json` and edit as needed:
 	"parseRealIPFrom": ["127.0.0.1"],
 	"maxMessageSize": 0,
 	"staticDir": "",
-	"nonWSResponse": "",
-	"logLevel": "info"
+	"nonWSResponse": "not found",
+	"allowedOrigins": ["https://example.com"],
+	"logLevel": "info",
+	"banEnabled": true,
+	"banDurationSeconds": 3600,
+	"banMaxStrikes": 5,
+	"maxHandshakeFailures": 10
 }
 ```
 
@@ -268,6 +274,7 @@ Copy `example.config.json` to `config.json` and edit as needed:
 | `allowDirectIP`              | bool     | Allow direct IP targets                       |
 | `allowPrivateIPs`            | bool     | Allow private IP targets                      |
 | `allowLoopbackIPs`           | bool     | Allow loopback IP targets                     |
+| `maxHandshakeFailures`       | int      | Max bad frames before closing connection      |
 | `tcpBufferSize`              | int      | TCP read buffer size                          |
 | `bufferRemainingLength`      | uint32   | Flow control buffer threshold                 |
 | `tcpNoDelay`                 | bool     | Enable TCP_NODELAY on outbound connections    |
@@ -303,7 +310,11 @@ Copy `example.config.json` to `config.json` and edit as needed:
 | `maxMessageSize`             | int      | Max WebSocket message size (bytes)            |
 | `staticDir`                  | string   | Static files directory                        |
 | `nonWSResponse`              | string   | Response body for non-websocket requests      |
+| `allowedOrigins`             | []string | Allowed Origin values (empty = allow all)     |
 | `logLevel`                   | string   | Log level (debug, info, warn, error)          |
+| `banEnabled`                 | bool     | Enable automatic IP bans                      |
+| `banDurationSeconds`         | int      | Ban duration in seconds                       |
+| `banMaxStrikes`              | int      | Max strikes before ban                        |
 
 ## Credits
  - [soap phia](https://github.com/soap-phia/) - writing most of this

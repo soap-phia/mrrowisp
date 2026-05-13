@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	prot "mrrowisp/wisp/protection"
+
 	"golang.org/x/net/proxy"
 )
 
@@ -37,7 +39,7 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 	defer s.signalConnReady()
 
 	cfg := s.wispConn.config
-	s.hostname = normalizeTargetHostname(hostname)
+	s.hostname = prot.NormalizeTargetHostname(hostname)
 	if s.hostname == "" {
 		s.close(closeReasonInvalidInfo)
 		return
@@ -208,9 +210,10 @@ func (s *wispStream) readFromConnection() {
 			buf[wispStart+3] = byte(streamId >> 16)
 			buf[wispStart+4] = byte(streamId >> 24)
 
-			frame := make([]byte, maxHeaderLen+n-frameStart)
+			frameBuf := s.wispConn.config.FramePool.Get().([]byte)
+			frame := frameBuf[:maxHeaderLen+n-frameStart]
 			copy(frame, buf[frameStart:maxHeaderLen+n])
-			s.wispConn.queueWrite(frame)
+			s.wispConn.queueWritePooled(frame)
 		}
 		if err != nil {
 			if err == io.EOF {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
@@ -9,7 +10,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"mrrowisp/wisp"
@@ -66,11 +69,13 @@ type Config struct {
 	MaxMessageSize          int      `json:"maxMessageSize"`
 	StaticDir               string   `json:"staticDir"`
 	NonWSResponse           string   `json:"nonWSResponse"`
+	AllowedOrigins          []string `json:"allowedOrigins"`
 	LogLevel                string   `json:"logLevel"`
 
 	BanEnabled         bool `json:"banEnabled"`
 	BanDurationSeconds int  `json:"banDurationSeconds"`
 	BanMaxStrikes      int  `json:"banMaxStrikes"`
+	MaxHandshakeFailures int `json:"maxHandshakeFailures"`
 }
 
 const (
@@ -78,6 +83,7 @@ const (
 	defaultStreamLimitTotal      = 16384
 	defaultMaxConnectsPerSecond  = 20
 	defaultConnectionsLimitPerIP = 120
+	defaultHandshakeFailures     = 10
 )
 
 func defaultConfig() Config {
@@ -85,7 +91,7 @@ func defaultConfig() Config {
 		Port:                       6001,
 		AllowTCP:                   true,
 		AllowUDP:                   true,
-		AllowDirectIP:              true,
+		AllowDirectIP:              false,
 		AllowPrivateIPs:            false,
 		AllowLoopbackIPs:           false,
 		TcpBufferSize:              32768,
@@ -115,6 +121,7 @@ func defaultConfig() Config {
 		BanEnabled:                 false,
 		BanDurationSeconds:         3600,
 		BanMaxStrikes:              10,
+		MaxHandshakeFailures:       defaultHandshakeFailures,
 	}
 }
 
@@ -177,6 +184,20 @@ func createWispConfig(cfg Config) *wisp.Config {
 	}
 	if cfg.MaxMessageSize < 0 {
 		cfg.MaxMessageSize = 0
+	}
+	if cfg.MaxHandshakeFailures <= 0 {
+		cfg.MaxHandshakeFailures = defaultHandshakeFailures
+	}
+	if len(cfg.AllowedOrigins) > 0 {
+		filtered := make([]string, 0, len(cfg.AllowedOrigins))
+		for _, origin := range cfg.AllowedOrigins {
+			origin = strings.TrimSpace(origin)
+			if origin == "" {
+				continue
+			}
+			filtered = append(filtered, origin)
+		}
+		cfg.AllowedOrigins = filtered
 	}
 
 	blacklistedHostnames := make(map[string]struct{})
@@ -286,10 +307,12 @@ func createWispConfig(cfg Config) *wisp.Config {
 		ParseRealIPFrom:            parseReal,
 		MaxMessageSize:             cfg.MaxMessageSize,
 		NonWSResponse:              cfg.NonWSResponse,
+		AllowedOrigins:             cfg.AllowedOrigins,
 		LogLevel:                   cfg.LogLevel,
 		BanEnabled:                 cfg.BanEnabled,
 		BanDuration:                time.Duration(cfg.BanDurationSeconds) * time.Second,
 		BanMaxStrikes:              cfg.BanMaxStrikes,
+		MaxHandshakeFailures:       cfg.MaxHandshakeFailures,
 	}
 
 	if wispCfg.PasswordUsers == nil {
@@ -301,6 +324,9 @@ func createWispConfig(cfg Config) *wisp.Config {
 	if wispCfg.StreamLimitTotal < 0 {
 		wispCfg.StreamLimitTotal = 0
 	}
+	if wispCfg.AllowedOrigins == nil {
+		wispCfg.AllowedOrigins = []string{}
+	}
 
 	return wispCfg
 }
@@ -311,7 +337,7 @@ func main() {
 	fLogLevel := flag.String("log-level", "", "log level (debug, info, warn, error)")
 	fAllowTCP := flag.Bool("allow-tcp", true, "allow TCP streams")
 	fAllowUDP := flag.Bool("allow-udp", true, "allow UDP streams")
-	fAllowDirectIP := flag.Bool("allow-direct-ip", true, "allow direct IP targets")
+	fAllowDirectIP := flag.Bool("allow-direct-ip", false, "allow direct IP targets")
 	fAllowPrivateIPs := flag.Bool("allow-private", false, "allow private IP targets")
 	fAllowLoopbackIPs := flag.Bool("allow-loopback", false, "allow loopback IP targets")
 	fStreamLimitPerHost := flag.Int("stream-limit-per-host", 0, "max streams per host (0 = unlimited)")
@@ -328,6 +354,7 @@ func main() {
 	fParseRealIP := flag.Bool("parse-real-ip", true, "parse client IP from forwarded headers")
 	fParseRealIPFrom := flag.String("parse-real-ip-from", "", "comma-separated list of IPs allowed to set real IP")
 	fMaxMessageSize := flag.Int("max-message-size", 0, "max websocket message size in bytes")
+	fAllowedOrigins := flag.String("allowed-origins", "", "comma-separated list of allowed origins")
 	flag.Parse()
 
 	var cfg Config
@@ -406,6 +433,9 @@ func main() {
 	if *fMaxMessageSize != 0 {
 		cfg.MaxMessageSize = *fMaxMessageSize
 	}
+	if *fAllowedOrigins != "" {
+		cfg.AllowedOrigins = strings.Split(*fAllowedOrigins, ",")
+	}
 
 	wispConfig := createWispConfig(cfg)
 
@@ -423,8 +453,22 @@ func main() {
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       120 * time.Second,
 	}
+
+	sigch := make(chan os.Signal, 1)
+	signal.Notify(sigch, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		sig := <-sigch
+		fmt.Printf("Shutting down (signal: %s)\n", sig.String())
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if shutdownErr := server.Shutdown(ctx); shutdownErr != nil {
+			fmt.Printf("Shutdown error: %v\n", shutdownErr)
+		}
+	}()
+
 	err = server.ListenAndServe()
-	if err != nil {
+	if err != nil && err != http.ErrServerClosed {
 		fmt.Printf("Failed to start Mrrowisp: %v", err)
 	}
 }

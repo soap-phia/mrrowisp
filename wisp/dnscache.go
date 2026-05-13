@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 type dnsEntry struct {
@@ -29,6 +31,7 @@ type DNSCache struct {
 
 	mu    sync.RWMutex
 	cache map[string]dnsEntry
+	group singleflight.Group
 }
 
 func NewDNSCache(cfg DNSCacheConfig) *DNSCache {
@@ -130,24 +133,32 @@ func (d *DNSCache) LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr,
 		return entry.ips, nil
 	}
 
-	ips, err := d.resolver.LookupIPAddr(ctx, host)
-	if err == nil {
-		ips = reorderIPs(ips, d.resultOrder)
-	}
-
-	d.mu.Lock()
-	d.cache[host] = dnsEntry{
-		ips:       ips,
-		expiresAt: now.Add(d.ttl),
-		err:       err,
-	}
-	d.mu.Unlock()
-
+	v, err, _ := d.group.Do(host, func() (any, error) {
+		ips, resolveErr := d.resolver.LookupIPAddr(ctx, host)
+		if resolveErr == nil {
+			ips = reorderIPs(ips, d.resultOrder)
+		}
+		entry := dnsEntry{
+			ips:       ips,
+			expiresAt: time.Now().Add(d.ttl),
+			err:       resolveErr,
+		}
+		d.mu.Lock()
+		d.cache[host] = entry
+		d.mu.Unlock()
+		return entry, resolveErr
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	return ips, nil
+	entry, ok = v.(dnsEntry)
+	if !ok {
+		return nil, err
+	}
+	if entry.err != nil {
+		return nil, entry.err
+	}
+	return entry.ips, nil
 }
 
 func reorderIPs(ips []net.IPAddr, order string) []net.IPAddr {

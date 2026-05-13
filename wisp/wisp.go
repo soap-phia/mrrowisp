@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -64,6 +65,7 @@ type Config struct {
 	ParseRealIPFrom         map[string]struct{}
 
 	MaxMessageSize int
+	AllowedOrigins []string
 
 	NonWSResponse string
 	LogLevel      string
@@ -72,6 +74,7 @@ type Config struct {
 	BandwidthLimiter  *protection.BandwidthLimiter
 	ConnectionLimiter *protection.ConnectionLimiter
 	StreamLimiter     *protection.StreamLimiter
+	FramePool         *sync.Pool
 
 	DNSCache    *DNSCache
 	ReadBufPool sync.Pool
@@ -81,6 +84,7 @@ type Config struct {
 	BanDuration   time.Duration
 	BanMaxStrikes int
 	BanList       *protection.BanList
+	MaxHandshakeFailures int
 }
 
 const (
@@ -93,7 +97,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		AllowTCP:                true,
 		AllowUDP:                true,
-		AllowDirectIP:           true,
+		AllowDirectIP:           false,
 		AllowPrivateIPs:         false,
 		AllowLoopbackIPs:        false,
 		TcpBufferSize:           32768,
@@ -109,6 +113,10 @@ func DefaultConfig() *Config {
 		DnsResultOrder:          "verbatim",
 		ConnectionWindowSeconds: 1,
 		ConnectionsLimitPerIP:   defaultConnectionsLimitPerIP,
+		MaxHandshakeFailures:    10,
+		BanEnabled:              true,
+		BanDuration:             time.Hour,
+		BanMaxStrikes:           10,
 	}
 }
 
@@ -141,6 +149,15 @@ func (c *Config) InitResolver() {
 	if c.BanEnabled {
 		c.BanList = protection.NewBanList(c.BanDuration, c.BanMaxStrikes)
 	}
+	if c.FramePool == nil {
+		readBufSize := 15 + c.TcpBufferSize
+		c.FramePool = &sync.Pool{
+			New: func() any {
+				buf := make([]byte, readBufSize)
+				return buf
+			},
+		}
+	}
 }
 
 type upgradeHandler struct {
@@ -156,6 +173,14 @@ func CreateWispHandler(config *Config) http.HandlerFunc {
 			buf := make([]byte, readBufSize)
 			return &buf
 		},
+	}
+	if config.FramePool == nil {
+		config.FramePool = &sync.Pool{
+			New: func() any {
+				buf := make([]byte, readBufSize)
+				return buf
+			},
+		}
 	}
 
 	config.Dialer = net.Dialer{
@@ -190,6 +215,11 @@ func CreateWispHandler(config *Config) http.HandlerFunc {
 			if response != "" {
 				_, _ = w.Write([]byte(response))
 			}
+			return
+		}
+		if !originAllowed(r, config.AllowedOrigins) {
+			config.Logger.Warn("origin blocked", "ip", remoteIP, "origin", r.Header.Get("Origin"))
+			w.WriteHeader(http.StatusForbidden)
 			return
 		}
 
@@ -242,4 +272,20 @@ func (c *Config) requiresV2() bool {
 		return false
 	}
 	return c.PasswordAuthRequired || c.CertAuthRequired || c.EnableTwisp
+}
+
+func originAllowed(r *http.Request, allowedOrigins []string) bool {
+	if len(allowedOrigins) == 0 {
+		return true
+	}
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin == "" {
+		return false
+	}
+	for _, allowed := range allowedOrigins {
+		if origin == strings.TrimSpace(allowed) {
+			return true
+		}
+	}
+	return false
 }

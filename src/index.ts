@@ -50,7 +50,12 @@ type MrrowispConfig = {
 	maxMessageSize: number;
 	staticDir: string;
 	nonWSResponse: string;
+	allowedOrigins: string[];
 	logLevel: "debug" | "info" | "warn" | "error";
+	banEnabled: boolean;
+	banDurationSeconds: number;
+	banMaxStrikes: number;
+	maxHandshakeFailures: number;
 
 }
 

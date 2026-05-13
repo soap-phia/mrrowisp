@@ -106,3 +106,26 @@ func FirstAllowedIP(ips []net.IPAddr, cfg IPConfig) (string, bool) {
 	}
 	return "", false
 }
+
+func NormalizeTargetHostname(host string) string {
+	host = strings.TrimSpace(strings.ToLower(host))
+	host = strings.TrimSuffix(host, ".")
+	return host
+}
+
+func IsOwnIP(resolvedIP string) bool {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return false
+	}
+	for _, iface := range ifaces {
+		ifaceAddrs, _ := iface.Addrs()
+		for _, ifaceAddr := range ifaceAddrs {
+			ip, _, _ := net.ParseCIDR(ifaceAddr.String())
+			if ip != nil && ip.String() == resolvedIP {
+				return true
+			}
+		}
+	}
+	return false
+}

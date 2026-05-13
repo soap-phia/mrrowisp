@@ -2,7 +2,7 @@
 	"port": 6001,
 	"allowTCP": true,
 	"allowUDP": true,
-	"allowDirectIP": true,
+	"allowDirectIP": false,
 	"allowPrivateIPs": false,
 	"allowLoopbackIPs": false,
 	"tcpBufferSize": 65535,
@@ -43,9 +43,11 @@
 	"parseRealIPFrom": ["127.0.0.1"],
 	"maxMessageSize": 0,
 	"staticDir": "",
-	"nonWSResponse": "",
+	"nonWSResponse": "mrrow merp >w<",
+	"allowedOrigins": [],
 	"logLevel": "info",
 	"banEnabled": true,
 	"banDurationSeconds": 3600,
-	"banMaxStrikes": 5
+	"banMaxStrikes": 5,
+	"maxHandshakeFailures": 10
 }

@@ -13,6 +13,7 @@ import (
 const (
 	maxConnectsPerSecond = 20
 	connectRateWindow    = time.Second
+	minFramePoolCap      = 64 * 1024
 )
 
 type connectRateLimiter struct {
@@ -50,17 +51,18 @@ const maxConcurrentDials = 50
 const maxPendingStreamBytes = 16 * 1024 * 1024
 
 type wispConnection struct {
-	netConn        net.Conn
-	writeCh        chan writeReq
-	streams        sync.Map
-	cachedStreamId uint32
-	cachedStream   unsafe.Pointer
-	isClosed       atomic.Bool
-	shutdownOnce   sync.Once
-	config         *Config
-	twispStreams   *twispRegistry
-	connectLimiter *connectRateLimiter
-	remoteIP       string
+	netConn           net.Conn
+	writeCh           chan writeReq
+	streams           sync.Map
+	cachedStreamId    uint32
+	cachedStream      unsafe.Pointer
+	isClosed          atomic.Bool
+	shutdownOnce      sync.Once
+	config            *Config
+	twispStreams      *twispRegistry
+	connectLimiter    *connectRateLimiter
+	remoteIP          string
+	handshakeFailures int
 
 	isV2          bool
 	handshakeDone chan struct{}
@@ -72,8 +74,6 @@ type wispConnection struct {
 	closeCh chan struct{}
 }
 
-// terminateNetwork closes the client socket and signals closeCh once so dial
-// goroutines and other waiters unblock. Safe to call from any goroutine.
 func (c *wispConnection) terminateNetwork() {
 	c.shutdownOnce.Do(func() {
 		c.isClosed.Store(true)
@@ -88,15 +88,23 @@ func (c *wispConnection) close() {
 
 func (c *wispConnection) writeLoop() {
 	for req := range c.writeCh {
-		bufs := net.Buffers{req.data}
+		reqs := []writeReq{req}
 		n := len(c.writeCh)
 		for i := 0; i < n; i++ {
-			r := <-c.writeCh
+			reqs = append(reqs, <-c.writeCh)
+		}
+		bufs := make(net.Buffers, 0, len(reqs))
+		for _, r := range reqs {
 			bufs = append(bufs, r.data)
 		}
 		if _, err := bufs.WriteTo(c.netConn); err != nil {
 			c.terminateNetwork()
 			return
+		}
+		for _, r := range reqs {
+			if r.pool {
+				c.releaseFrame(r.data)
+			}
 		}
 	}
 }
@@ -109,6 +117,44 @@ func (c *wispConnection) queueWrite(data []byte) {
 		recover()
 	}()
 	c.writeCh <- writeReq{data: data}
+}
+
+func (c *wispConnection) queueWritePooled(data []byte) {
+	if c.isClosed.Load() {
+		c.releaseFrame(data)
+		return
+	}
+	defer func() {
+		if recover() != nil {
+			c.releaseFrame(data)
+		}
+	}()
+	c.writeCh <- writeReq{data: data, pool: true}
+}
+
+func (c *wispConnection) releaseFrame(data []byte) {
+	if c.config == nil || c.config.FramePool == nil || len(data) == 0 {
+		return
+	}
+	if cap(data) < minFramePoolCap {
+		return
+	}
+	buf := data
+	if len(buf) != cap(buf) {
+		buf = data[:cap(data)]
+	}
+	c.config.FramePool.Put(buf)
+}
+
+func (c *wispConnection) noteHandshakeFailure() {
+	if c.config == nil || c.config.MaxHandshakeFailures <= 0 {
+		return
+	}
+	c.handshakeFailures++
+	if c.handshakeFailures >= c.config.MaxHandshakeFailures {
+		c.config.Logger.Warn("handshake failures exceeded", "ip", c.remoteIP)
+		c.terminateNetwork()
+	}
 }
 
 func (c *wispConnection) handlePacket(packetType uint8, streamId uint32, payload []byte) {
