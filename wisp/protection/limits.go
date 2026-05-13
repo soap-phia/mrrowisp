@@ -1,4 +1,4 @@
-package wisp
+package protection
 
 import (
 	"sync"
@@ -13,7 +13,7 @@ type BandwidthLimiter struct {
 	limit  uint64
 }
 
-func newBandwidthLimiter(kbps int, window time.Duration) *BandwidthLimiter {
+func NewBandwidthLimiter(kbps int, window time.Duration) *BandwidthLimiter {
 	if window <= 0 {
 		window = time.Second
 	}
@@ -48,7 +48,7 @@ type ConnectionLimiter struct {
 	limit  int
 }
 
-func newConnectionLimiter(limit int, window time.Duration) *ConnectionLimiter {
+func NewConnectionLimiter(limit int, window time.Duration) *ConnectionLimiter {
 	if window <= 0 {
 		window = time.Second
 	}

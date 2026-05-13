@@ -43,43 +43,16 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 		return
 	}
 
-	if len(cfg.Whitelist.Hostnames) > 0 {
-		if _, ok := cfg.Whitelist.Hostnames[s.hostname]; !ok {
-			s.close(closeReasonBlocked)
-			return
-		}
-	} else if len(cfg.Blacklist.Hostnames) > 0 {
-		if _, ok := cfg.Blacklist.Hostnames[s.hostname]; ok {
-			s.close(closeReasonBlocked)
-			return
-		}
-	}
-
-	if len(cfg.Whitelist.Ports) > 0 {
-		if _, ok := cfg.Whitelist.Ports[port]; !ok {
-			s.close(closeReasonBlocked)
-			return
-		}
-	} else if len(cfg.Blacklist.Ports) > 0 {
-		if _, ok := cfg.Blacklist.Ports[port]; ok {
-			s.close(closeReasonBlocked)
-			return
-		}
+	guard := newProtection(cfg)
+	if reason, ok := guard.allowHostPort(s.hostname, port); !ok {
+		s.close(reason)
+		return
 	}
 
 	resolvedHostname := s.hostname
 	if ip := net.ParseIP(resolvedHostname); ip != nil {
-		if !cfg.AllowDirectIP {
-			s.close(closeReasonBlocked)
-			return
-		}
-		if !isAllowedTargetIP(ip, cfg) {
-			s.close(closeReasonBlocked)
-			return
-		}
-		if isOwnIP(ip.String()) {
-			cfg.Logger.Warn("self-targeting stream blocked", "ip", s.wispConn.remoteIP, "hostname", s.hostname)
-			s.close(closeReasonBlocked)
+		if reason, ok := guard.allowDirectIP(ip, s.wispConn.remoteIP, s.hostname); !ok {
+			s.close(reason)
 			return
 		}
 		resolvedHostname = ip.String()
@@ -97,15 +70,9 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 			s.close(closeReasonUnreachable)
 			return
 		}
-		selected, ok := firstAllowedIP(ips, cfg)
+		selected, reason, ok := guard.selectAllowedIP(ips, s.wispConn.remoteIP, resolvedHostname)
 		if !ok {
-			cfg.Logger.Warn("DNS returned only blocked IPs", "ip", s.wispConn.remoteIP, "hostname", resolvedHostname)
-			s.close(closeReasonBlocked)
-			return
-		}
-		if isOwnIP(selected) {
-			cfg.Logger.Warn("self-targeting stream blocked", "ip", s.wispConn.remoteIP, "hostname", s.hostname)
-			s.close(closeReasonBlocked)
+			s.close(reason)
 			return
 		}
 		resolvedHostname = selected
@@ -196,18 +163,17 @@ func (s *wispStream) readFromConnection() {
 	bufp := s.wispConn.config.ReadBufPool.Get().(*[]byte)
 	buf := *bufp
 	defer s.wispConn.config.ReadBufPool.Put(bufp)
+	guard := newProtection(s.wispConn.config)
 
 	streamId := s.streamId
 
 	for {
 		n, err := s.conn.Read(buf[maxHeaderLen:])
 		if n > 0 {
-			if s.wispConn.config.BandwidthLimiter != nil {
-				if !s.wispConn.config.BandwidthLimiter.Allow(s.wispConn.remoteIP, uint64(n)) {
-					s.close(closeReasonThrottled)
-					return
-				}
-			}
+		if !guard.allowBandwidth(s.wispConn.remoteIP, n) {
+			s.close(closeReasonThrottled)
+			return
+		}
 			totalPayload := 5 + n
 			var frameStart int
 
@@ -272,7 +238,7 @@ func (s *wispStream) close(reason uint8) {
 	}
 
 	if s.wispConn.config.StreamLimiter != nil {
-		s.wispConn.config.StreamLimiter.release(s.hostname)
+		s.wispConn.config.StreamLimiter.Release(s.hostname)
 	}
 
 	s.wispConn.sendClosePacket(s.streamId, reason)

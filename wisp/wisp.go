@@ -4,9 +4,10 @@ import (
 	"crypto/ed25519"
 	"net"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
+
+	"mrrowisp/wisp/protection"
 
 	"github.com/lxzan/gws"
 )
@@ -68,9 +69,9 @@ type Config struct {
 	LogLevel      string
 
 	Logger            Logger
-	BandwidthLimiter  *BandwidthLimiter
-	ConnectionLimiter *ConnectionLimiter
-	StreamLimiter     *streamLimiter
+	BandwidthLimiter  *protection.BandwidthLimiter
+	ConnectionLimiter *protection.ConnectionLimiter
+	StreamLimiter     *protection.StreamLimiter
 
 	DNSCache    *DNSCache
 	ReadBufPool sync.Pool
@@ -79,7 +80,7 @@ type Config struct {
 	BanEnabled    bool
 	BanDuration   time.Duration
 	BanMaxStrikes int
-	BanList       *BanList
+	BanList       *protection.BanList
 }
 
 const (
@@ -126,19 +127,19 @@ func (c *Config) InitResolver() {
 		c.Logger = newLogger(c.LogLevel)
 	}
 	if c.BandwidthLimitKbps > 0 {
-		c.BandwidthLimiter = newBandwidthLimiter(c.BandwidthLimitKbps, time.Duration(c.ConnectionWindowSeconds)*time.Second)
+		c.BandwidthLimiter = protection.NewBandwidthLimiter(c.BandwidthLimitKbps, time.Duration(c.ConnectionWindowSeconds)*time.Second)
 	}
 	if c.ConnectionsLimitPerIP > 0 {
-		c.ConnectionLimiter = newConnectionLimiter(c.ConnectionsLimitPerIP, time.Duration(c.ConnectionWindowSeconds)*time.Second)
+		c.ConnectionLimiter = protection.NewConnectionLimiter(c.ConnectionsLimitPerIP, time.Duration(c.ConnectionWindowSeconds)*time.Second)
 	}
 	if c.StreamLimiter == nil {
-		c.StreamLimiter = newStreamLimiter()
+		c.StreamLimiter = protection.NewStreamLimiter()
 	}
 	if c.ParseRealIPFrom == nil {
 		c.ParseRealIPFrom = make(map[string]struct{})
 	}
 	if c.BanEnabled {
-		c.BanList = newBanList(c.BanDuration, c.BanMaxStrikes)
+		c.BanList = protection.NewBanList(c.BanDuration, c.BanMaxStrikes)
 	}
 }
 
@@ -171,47 +172,23 @@ func CreateWispHandler(config *Config) http.HandlerFunc {
 		config.Logger.Warn("websocket permessage-deflate disabled because raw frame handling does not support compressed payloads")
 	}
 
+	guard := newProtection(config)
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		useV2 := config.EnableV2 && r.Header.Get("Sec-WebSocket-Protocol") != ""
-		remoteIP := remoteIPFromRequest(r, config)
+		remoteIP := protection.RemoteIPFromRequest(r, protection.IPConfig{
+			AllowDirectIP:    config.AllowDirectIP,
+			AllowPrivateIPs:  config.AllowPrivateIPs,
+			AllowLoopbackIPs: config.AllowLoopbackIPs,
+			ParseRealIP:      config.ParseRealIP,
+			ParseRealIPFrom:  config.ParseRealIPFrom,
+		})
 		config.Logger.Info("incoming connection", "ip", remoteIP, "path", r.URL.Path, "origin", r.Header.Get("Origin"))
 
-		if config.BanList != nil && config.BanList.IsBanned(remoteIP) {
-			config.Logger.Warn("banned ip rejected", "ip", remoteIP)
-			w.WriteHeader(http.StatusForbidden)
-			return
-		}
-
-		if config.ConnectionLimiter != nil {
-			if !config.ConnectionLimiter.Allow(remoteIP) {
-				if config.BanList != nil {
-					if banned := config.BanList.Strike(remoteIP); banned {
-						config.Logger.Warn("ip banned", "ip", remoteIP)
-					}
-				}
-				w.WriteHeader(http.StatusTooManyRequests)
-				if config.NonWSResponse != "" {
-					_, _ = w.Write([]byte(config.NonWSResponse))
-				}
-				return
-			}
-		}
-
-		if !strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade") || strings.ToLower(r.Header.Get("Upgrade")) != "websocket" {
-			if config.NonWSResponse != "" {
-				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write([]byte(config.NonWSResponse))
-			} else {
-				w.WriteHeader(http.StatusBadRequest)
-			}
-			return
-		}
-
-		if !useV2 && config.requiresV2() {
-			config.Logger.Warn("websocket v1 downgrade blocked", "ip", remoteIP)
-			w.WriteHeader(http.StatusUnauthorized)
-			if config.NonWSResponse != "" {
-				_, _ = w.Write([]byte(config.NonWSResponse))
+		if status, response, ok := guard.allowHTTP(r, remoteIP, useV2); !ok {
+			w.WriteHeader(status)
+			if response != "" {
+				_, _ = w.Write([]byte(response))
 			}
 			return
 		}

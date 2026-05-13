@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"net"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -138,68 +137,20 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 	if len(payload) < 3 {
 		return
 	}
+	guard := newProtection(c.config)
 	streamType := payload[0]
 	port := strconv.FormatUint(uint64(binary.LittleEndian.Uint16(payload[1:3])), 10)
 	hostname := string(payload[3:])
 
-	if len(hostname) > 2048 || strings.IndexByte(hostname, 0) >= 0 {
-		c.sendClosePacket(streamId, closeReasonInvalidInfo)
-		return
-	}
-
 	c.config.Logger.Debug("creating stream", "ip", c.remoteIP, "streamId", streamId, "hostname", hostname, "port", port, "type", streamType)
-
-	if !c.connectLimiter.allow() {
-		c.config.Logger.Warn("connect rate limit exceeded", "ip", c.remoteIP)
-		if c.config.BanList != nil {
-			if banned := c.config.BanList.Strike(c.remoteIP); banned {
-				c.config.Logger.Warn("ip banned", "ip", c.remoteIP)
-				c.terminateNetwork()
-			}
-		}
-		c.sendClosePacket(streamId, closeReasonThrottled)
+	action, normalizedHostname, reason := guard.allowConnect(c, streamType, hostname, port)
+	if action == connectBlocked {
+		c.sendClosePacket(streamId, reason)
 		return
 	}
-
-	if streamType == streamTypeTerm {
-		if !c.config.EnableTwisp || !c.twispAuthorized() {
-			c.config.Logger.Warn("terminal stream blocked", "ip", c.remoteIP)
-			c.sendClosePacket(streamId, closeReasonBlocked)
-			return
-		}
+	if action == connectTwisp {
 		go handleTwisp(c, streamId, hostname)
 		return
-	}
-
-	if streamType == streamTypeTCP && !c.config.AllowTCP {
-		c.config.Logger.Warn("TCP streams blocked", "ip", c.remoteIP, "hostname", hostname)
-		c.sendClosePacket(streamId, closeReasonBlocked)
-		return
-	}
-	if streamType == streamTypeUDP && !c.config.AllowUDP {
-		c.config.Logger.Warn("UDP streams blocked", "ip", c.remoteIP, "hostname", hostname)
-		c.sendClosePacket(streamId, closeReasonBlocked)
-		return
-	}
-
-	normalizedHostname := normalizeTargetHostname(hostname)
-	if normalizedHostname == "" {
-		c.sendClosePacket(streamId, closeReasonInvalidInfo)
-		return
-	}
-
-	if isOwnIP(normalizedHostname) {
-		c.config.Logger.Warn("self-targeting stream blocked", "ip", c.remoteIP, "hostname", hostname)
-		c.sendClosePacket(streamId, closeReasonBlocked)
-		return
-	}
-
-	if c.config.StreamLimiter != nil {
-		if !c.config.StreamLimiter.allow(normalizedHostname, c.config.StreamLimitPerHost, c.config.StreamLimitTotal) {
-			c.config.Logger.Warn("stream limit reached", "ip", c.remoteIP, "hostname", hostname)
-			c.sendClosePacket(streamId, closeReasonThrottled)
-			return
-		}
 	}
 
 	stream := &wispStream{
@@ -212,7 +163,7 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 
 	if _, loaded := c.streams.LoadOrStore(streamId, stream); loaded {
 		if c.config.StreamLimiter != nil {
-			c.config.StreamLimiter.release(stream.hostname)
+			c.config.StreamLimiter.Release(stream.hostname)
 		}
 		close(stream.connReady)
 		return
@@ -222,13 +173,12 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 }
 
 func (c *wispConnection) handleDataPacket(streamId uint32, payload []byte) {
-	if c.config.BandwidthLimiter != nil {
-		if !c.config.BandwidthLimiter.Allow(c.remoteIP, uint64(len(payload))) {
-			c.sendClosePacket(streamId, closeReasonThrottled)
-			return
-		}
+	guard := newProtection(c.config)
+	if !guard.allowBandwidth(c.remoteIP, len(payload)) {
+		c.sendClosePacket(streamId, closeReasonThrottled)
+		return
 	}
-	if c.config.MaxMessageSize > 0 && len(payload) > c.config.MaxMessageSize {
+	if !guard.allowMessageSize(len(payload)) {
 		c.sendClosePacket(streamId, closeReasonInvalidInfo)
 		return
 	}

@@ -1,18 +1,18 @@
-package wisp
+package protection
 
 import "sync"
 
-type streamLimiter struct {
+type StreamLimiter struct {
 	mutex sync.Mutex
-	pH    map[string]int // eleanor roosevelt
+	pH    map[string]int
 	total int
 }
 
-func newStreamLimiter() *streamLimiter {
-	return &streamLimiter{pH: make(map[string]int)}
+func NewStreamLimiter() *StreamLimiter {
+	return &StreamLimiter{pH: make(map[string]int)}
 }
 
-func (s *streamLimiter) allow(host string, perHostLimit int, totalLimit int) bool {
+func (s *StreamLimiter) Allow(host string, perHostLimit int, totalLimit int) bool {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	if totalLimit > 0 && s.total >= totalLimit {
@@ -26,7 +26,7 @@ func (s *streamLimiter) allow(host string, perHostLimit int, totalLimit int) boo
 	return true
 }
 
-func (s *streamLimiter) release(host string) {
+func (s *StreamLimiter) Release(host string) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	if s.total > 0 {

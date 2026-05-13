@@ -1,4 +1,4 @@
-package wisp
+package protection
 
 import (
 	"net"
@@ -15,7 +15,7 @@ type BanList struct {
 	maxStrikes int
 }
 
-func newBanList(banDuration time.Duration, maxStrikes int) *BanList {
+func NewBanList(banDuration time.Duration, maxStrikes int) *BanList {
 	if banDuration <= 0 {
 		banDuration = time.Hour
 	}
