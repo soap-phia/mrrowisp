@@ -16,7 +16,6 @@ RUN apk --no-cache add ca-certificates
 WORKDIR /app
 
 COPY --from=builder /app/mrrowisp .
-COPY example.config.json ./config.json
 
 EXPOSE 6001
 

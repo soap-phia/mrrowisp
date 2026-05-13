@@ -188,6 +188,12 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 		return
 	}
 
+	if isOwnIP(normalizedHostname) {
+		c.config.Logger.Warn("self-targeting stream blocked", "ip", c.remoteIP, "hostname", hostname)
+		c.sendClosePacket(streamId, closeReasonBlocked)
+		return
+	}
+
 	if c.config.StreamLimiter != nil {
 		if !c.config.StreamLimiter.allow(normalizedHostname, c.config.StreamLimitPerHost, c.config.StreamLimitTotal) {
 			c.config.Logger.Warn("stream limit reached", "ip", c.remoteIP, "hostname", hostname)

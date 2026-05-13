@@ -77,6 +77,11 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 			s.close(closeReasonBlocked)
 			return
 		}
+		if isOwnIP(ip.String()) {
+			cfg.Logger.Warn("self-targeting stream blocked", "ip", s.wispConn.remoteIP, "hostname", s.hostname)
+			s.close(closeReasonBlocked)
+			return
+		}
 		resolvedHostname = ip.String()
 	} else if cfg.DNSCache != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), dnsLookupTimeout)
@@ -95,6 +100,11 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 		selected, ok := firstAllowedIP(ips, cfg)
 		if !ok {
 			cfg.Logger.Warn("DNS returned only blocked IPs", "ip", s.wispConn.remoteIP, "hostname", resolvedHostname)
+			s.close(closeReasonBlocked)
+			return
+		}
+		if isOwnIP(selected) {
+			cfg.Logger.Warn("self-targeting stream blocked", "ip", s.wispConn.remoteIP, "hostname", s.hostname)
 			s.close(closeReasonBlocked)
 			return
 		}
