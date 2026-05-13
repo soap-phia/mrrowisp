@@ -45,9 +45,18 @@
 	"staticDir": "",
 	"nonWSResponse": "mrrow merp >w<",
 	"allowedOrigins": [],
+	"writeTimeoutSeconds": 15,
 	"logLevel": "info",
 	"banEnabled": true,
 	"banDurationSeconds": 3600,
 	"banMaxStrikes": 5,
-	"maxHandshakeFailures": 10
+	"banEscalationMultiplier": 0,
+	"maxHandshakeFailures": 10,
+	"maxPacketRate": 500,
+	"maxConnectionLifetimeSeconds": 0,
+	"maxStreamsPerConnection": 0,
+	"maxConnectionsPerIP": 0,
+	"globalMaxConnections": 0,
+	"writeQueueSize": 4096,
+	"maxInboundBytesPerSecond": 0
 }

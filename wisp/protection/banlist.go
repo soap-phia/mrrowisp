@@ -8,14 +8,19 @@ import (
 )
 
 type BanList struct {
-	mutex      sync.RWMutex
-	bans       map[string]time.Time
-	banDur     time.Duration
-	strikes    map[string]int
-	maxStrikes int
+	mutex                sync.RWMutex
+	bans                 map[string]time.Time
+	banDur               time.Duration
+	strikes              map[string]int
+	maxStrikes           int
+	escalationMultiplier int
 }
 
 func NewBanList(banDuration time.Duration, maxStrikes int) *BanList {
+	return NewBanListEscalated(banDuration, maxStrikes, 0)
+}
+
+func NewBanListEscalated(banDuration time.Duration, maxStrikes int, escalation int) *BanList {
 	if banDuration <= 0 {
 		banDuration = time.Hour
 	}
@@ -23,11 +28,12 @@ func NewBanList(banDuration time.Duration, maxStrikes int) *BanList {
 		maxStrikes = 10
 	}
 	b := &BanList{
-		bans:       make(map[string]time.Time),
-		strikes:    make(map[string]int),
-		mutex:      sync.RWMutex{},
-		banDur:     banDuration,
-		maxStrikes: maxStrikes,
+		bans:                 make(map[string]time.Time),
+		strikes:              make(map[string]int),
+		mutex:                sync.RWMutex{},
+		banDur:               banDuration,
+		maxStrikes:           maxStrikes,
+		escalationMultiplier: escalation,
 	}
 	go b.cleanup()
 	return b
@@ -38,7 +44,13 @@ func (b *BanList) Strike(ip string) (banned bool) {
 	defer b.mutex.Unlock()
 	b.strikes[ip]++
 	if b.strikes[ip] >= b.maxStrikes {
-		b.bans[ip] = time.Now().Add(b.banDur)
+		dur := b.banDur
+		if b.escalationMultiplier > 0 {
+			for i := 1; i < b.strikes[ip]/b.maxStrikes; i++ {
+				dur *= time.Duration(b.escalationMultiplier)
+			}
+		}
+		b.bans[ip] = time.Now().Add(dur)
 		delete(b.strikes, ip)
 		return true
 	}

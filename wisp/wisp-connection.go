@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 	"unsafe"
+
+	prot "mrrowisp/wisp/protection"
 )
 
 const (
@@ -70,8 +72,12 @@ type wispConnection struct {
 	v2Challenge   []byte
 	authenticated atomic.Bool
 
-	dialSem chan struct{}
-	closeCh chan struct{}
+	dialSem        chan struct{}
+	closeCh        chan struct{}
+	createdAt      time.Time
+	packetLimiter  *prot.PacketRateLimiter
+	inboundLimiter *prot.InboundRateLimiter
+	streamCount    atomic.Int32
 }
 
 func (c *wispConnection) terminateNetwork() {
@@ -97,9 +103,15 @@ func (c *wispConnection) writeLoop() {
 		for _, r := range reqs {
 			bufs = append(bufs, r.data)
 		}
+		if c.config != nil && c.config.WriteTimeout > 0 {
+			_ = c.netConn.SetWriteDeadline(time.Now().Add(c.config.WriteTimeout))
+		}
 		if _, err := bufs.WriteTo(c.netConn); err != nil {
 			c.terminateNetwork()
 			return
+		}
+		if c.config != nil && c.config.WriteTimeout > 0 {
+			_ = c.netConn.SetWriteDeadline(time.Time{})
 		}
 		for _, r := range reqs {
 			if r.pool {
@@ -116,7 +128,11 @@ func (c *wispConnection) queueWrite(data []byte) {
 	defer func() {
 		recover()
 	}()
-	c.writeCh <- writeReq{data: data}
+	select {
+	case c.writeCh <- writeReq{data: data}:
+	case <-c.closeCh:
+		return
+	}
 }
 
 func (c *wispConnection) queueWritePooled(data []byte) {
@@ -129,7 +145,12 @@ func (c *wispConnection) queueWritePooled(data []byte) {
 			c.releaseFrame(data)
 		}
 	}()
-	c.writeCh <- writeReq{data: data, pool: true}
+	select {
+	case c.writeCh <- writeReq{data: data, pool: true}:
+	case <-c.closeCh:
+		c.releaseFrame(data)
+		return
+	}
 }
 
 func (c *wispConnection) releaseFrame(data []byte) {
@@ -154,6 +175,20 @@ func (c *wispConnection) noteHandshakeFailure() {
 	if c.handshakeFailures >= c.config.MaxHandshakeFailures {
 		c.config.Logger.Warn("handshake failures exceeded", "ip", c.remoteIP)
 		c.terminateNetwork()
+	}
+}
+
+func (c *wispConnection) lifetimeWatchdog() {
+	if c.config.MaxConnectionLifetime <= 0 {
+		return
+	}
+	timer := time.NewTimer(c.config.MaxConnectionLifetime)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		c.config.Logger.Warn("connection lifetime exceeded", "ip", c.remoteIP)
+		c.terminateNetwork()
+	case <-c.closeCh:
 	}
 }
 
@@ -199,6 +234,19 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 		return
 	}
 
+	maxStreams := c.config.MaxStreamsPerConnection
+	if maxStreams > 0 {
+		cur := int(c.streamCount.Load())
+		if cur >= maxStreams {
+			c.config.Logger.Warn("streams per connection exceeded", "ip", c.remoteIP, "limit", maxStreams)
+			if c.config.StreamLimiter != nil {
+				c.config.StreamLimiter.Release(normalizedHostname)
+			}
+			c.sendClosePacket(streamId, closeReasonThrottled)
+			return
+		}
+	}
+
 	stream := &wispStream{
 		wispConn:  c,
 		streamId:  streamId,
@@ -215,11 +263,20 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 		return
 	}
 
+	c.streamCount.Add(1)
 	go stream.handleConnect(streamType, port, normalizedHostname)
 }
 
 func (c *wispConnection) handleDataPacket(streamId uint32, payload []byte) {
 	guard := newProtection(c.config)
+	if c.packetLimiter != nil && !c.packetLimiter.Allow() {
+		c.sendClosePacket(streamId, closeReasonThrottled)
+		return
+	}
+	if c.inboundLimiter != nil && !c.inboundLimiter.Allow(len(payload)) {
+		c.sendClosePacket(streamId, closeReasonThrottled)
+		return
+	}
 	if !guard.allowBandwidth(c.remoteIP, len(payload)) {
 		c.sendClosePacket(streamId, closeReasonThrottled)
 		return
@@ -360,10 +417,14 @@ func (c *wispConnection) deleteWispStream(streamId uint32) {
 	if c.cachedStreamId == streamId {
 		atomic.StorePointer(&c.cachedStream, nil)
 	}
+	c.streamCount.Add(-1)
 }
 
 func (c *wispConnection) deleteAllWispStreams() {
 	c.terminateNetwork()
+	if c.config.ConnectionCounter != nil {
+		c.config.ConnectionCounter.Remove(c.remoteIP)
+	}
 	c.config.Logger.Info("connection closed", "ip", c.remoteIP)
 	c.streams.Range(func(key, value any) bool {
 		stream := value.(*wispStream)

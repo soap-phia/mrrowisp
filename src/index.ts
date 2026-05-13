@@ -51,12 +51,20 @@ type MrrowispConfig = {
 	staticDir: string;
 	nonWSResponse: string;
 	allowedOrigins: string[];
+	writeTimeoutSeconds: number;
 	logLevel: "debug" | "info" | "warn" | "error";
 	banEnabled: boolean;
 	banDurationSeconds: number;
 	banMaxStrikes: number;
+	banEscalationMultiplier: number;
 	maxHandshakeFailures: number;
-
+	maxPacketRate: number;
+	maxConnectionLifetimeSeconds: number;
+	maxStreamsPerConnection: number;
+	maxConnectionsPerIP: number;
+	globalMaxConnections: number;
+	writeQueueSize: number;
+	maxInboundBytesPerSecond: number;
 }
 
 const defaultConfig: MrrowispConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));

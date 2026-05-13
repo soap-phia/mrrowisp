@@ -253,13 +253,22 @@ Copy `example.config.json` to `config.json` and edit as needed. The example defa
 	"parseRealIPFrom": ["127.0.0.1"],
 	"maxMessageSize": 0,
 	"staticDir": "",
-	"nonWSResponse": "not found",
+	"nonWSResponse": "mrrow merp >w<",
 	"allowedOrigins": ["https://example.com"],
+	"writeTimeoutSeconds": 15,
 	"logLevel": "info",
 	"banEnabled": true,
 	"banDurationSeconds": 3600,
 	"banMaxStrikes": 5,
-	"maxHandshakeFailures": 10
+	"banEscalationMultiplier": 0,
+	"maxHandshakeFailures": 10,
+	"maxPacketRate": 500,
+	"maxConnectionLifetimeSeconds": 0,
+	"maxStreamsPerConnection": 0,
+	"maxConnectionsPerIP": 0,
+	"globalMaxConnections": 0,
+	"writeQueueSize": 4096,
+	"maxInboundBytesPerSecond": 0
 }
 ```
 
@@ -275,6 +284,14 @@ Copy `example.config.json` to `config.json` and edit as needed. The example defa
 | `allowPrivateIPs`            | bool     | Allow private IP targets                      |
 | `allowLoopbackIPs`           | bool     | Allow loopback IP targets                     |
 | `maxHandshakeFailures`       | int      | Max bad frames before closing connection      |
+| `maxPacketRate`              | int      | Max Wisp packets/sec per connection           |
+| `maxConnectionLifetimeSeconds` | int    | Max connection duration (0 = unlimited)       |
+| `maxStreamsPerConnection`    | int      | Max concurrent streams per connection         |
+| `maxConnectionsPerIP`        | int      | Hard connection cap per IP (0 = unlimited)    |
+| `globalMaxConnections`       | int      | Hard global connection cap (0 = unlimited)    |
+| `writeQueueSize`             | int      | Write channel buffer size                     |
+| `maxInboundBytesPerSecond`   | int      | Max inbound bytes/sec per connection          |
+| `writeTimeoutSeconds`        | int      | Write timeout in seconds (0 = disabled)      |
 | `tcpBufferSize`              | int      | TCP read buffer size                          |
 | `bufferRemainingLength`      | uint32   | Flow control buffer threshold                 |
 | `tcpNoDelay`                 | bool     | Enable TCP_NODELAY on outbound connections    |
@@ -311,10 +328,12 @@ Copy `example.config.json` to `config.json` and edit as needed. The example defa
 | `staticDir`                  | string   | Static files directory                        |
 | `nonWSResponse`              | string   | Response body for non-websocket requests      |
 | `allowedOrigins`             | []string | Allowed Origin values (empty = allow all)     |
+| `writeTimeoutSeconds`        | int      | Write timeout in seconds (0 = disabled)      |
 | `logLevel`                   | string   | Log level (debug, info, warn, error)          |
 | `banEnabled`                 | bool     | Enable automatic IP bans                      |
 | `banDurationSeconds`         | int      | Ban duration in seconds                       |
 | `banMaxStrikes`              | int      | Max strikes before ban                        |
+| `banEscalationMultiplier`    | int      | Multiply ban duration per offense (0=flat)    |
 
 ## Credits
  - [soap phia](https://github.com/soap-phia/) - writing most of this

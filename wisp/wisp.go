@@ -66,6 +66,7 @@ type Config struct {
 
 	MaxMessageSize int
 	AllowedOrigins []string
+	WriteTimeout   time.Duration
 
 	NonWSResponse string
 	LogLevel      string
@@ -73,6 +74,7 @@ type Config struct {
 	Logger            Logger
 	BandwidthLimiter  *protection.BandwidthLimiter
 	ConnectionLimiter *protection.ConnectionLimiter
+	ConnectionCounter *protection.ConnectionCounter
 	StreamLimiter     *protection.StreamLimiter
 	FramePool         *sync.Pool
 
@@ -80,11 +82,20 @@ type Config struct {
 	ReadBufPool sync.Pool
 	Dialer      net.Dialer
 
-	BanEnabled    bool
-	BanDuration   time.Duration
-	BanMaxStrikes int
-	BanList       *protection.BanList
-	MaxHandshakeFailures int
+	BanEnabled             bool
+	BanDuration            time.Duration
+	BanMaxStrikes          int
+	BanEscalationMultiplier int
+	BanList                *protection.BanList
+	MaxHandshakeFailures   int
+
+	MaxPacketRate           int
+	MaxConnectionLifetime   time.Duration
+	MaxStreamsPerConnection int
+	MaxConnectionsPerIP     int
+	GlobalMaxConnections    int
+	WriteQueueSize          int
+	MaxInboundBytesPerSecond int
 }
 
 const (
@@ -117,6 +128,15 @@ func DefaultConfig() *Config {
 		BanEnabled:              true,
 		BanDuration:             time.Hour,
 		BanMaxStrikes:           10,
+		BanEscalationMultiplier: 0,
+		WriteTimeout:            15 * time.Second,
+		MaxPacketRate:           500,
+		MaxConnectionLifetime:   0,
+		MaxStreamsPerConnection: 0,
+		MaxConnectionsPerIP:     0,
+		GlobalMaxConnections:    0,
+		WriteQueueSize:          4096,
+		MaxInboundBytesPerSecond: 0,
 	}
 }
 
@@ -146,8 +166,11 @@ func (c *Config) InitResolver() {
 	if c.ParseRealIPFrom == nil {
 		c.ParseRealIPFrom = make(map[string]struct{})
 	}
+	if c.MaxConnectionsPerIP > 0 || c.GlobalMaxConnections > 0 {
+		c.ConnectionCounter = protection.NewConnectionCounter()
+	}
 	if c.BanEnabled {
-		c.BanList = protection.NewBanList(c.BanDuration, c.BanMaxStrikes)
+		c.BanList = protection.NewBanListEscalated(c.BanDuration, c.BanMaxStrikes, c.BanEscalationMultiplier)
 	}
 	if c.FramePool == nil {
 		readBufSize := 15 + c.TcpBufferSize
@@ -157,6 +180,9 @@ func (c *Config) InitResolver() {
 				return buf
 			},
 		}
+	}
+	if c.WriteTimeout < 0 {
+		c.WriteTimeout = 0
 	}
 }
 
@@ -209,6 +235,11 @@ func CreateWispHandler(config *Config) http.HandlerFunc {
 			ParseRealIPFrom:  config.ParseRealIPFrom,
 		})
 		config.Logger.Info("incoming connection", "ip", remoteIP, "path", r.URL.Path, "origin", r.Header.Get("Origin"))
+		if config.requiresV2() && !useV2 {
+			config.Logger.Warn("v2 required but not negotiated", "ip", remoteIP)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
 
 		if status, response, ok := guard.allowHTTP(r, remoteIP, useV2); !ok {
 			w.WriteHeader(status)
@@ -223,8 +254,19 @@ func CreateWispHandler(config *Config) http.HandlerFunc {
 			return
 		}
 
+		if config.ConnectionCounter != nil {
+			if !config.ConnectionCounter.TryAdd(remoteIP, config.MaxConnectionsPerIP, config.GlobalMaxConnections) {
+				config.Logger.Warn("connection cap reached", "ip", remoteIP)
+				w.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
+		}
+
 		wsConn, err := upgrader.Upgrade(w, r)
 		if err != nil {
+			if config.ConnectionCounter != nil {
+				config.ConnectionCounter.Remove(remoteIP)
+			}
 			if config.NonWSResponse != "" {
 				w.WriteHeader(http.StatusBadRequest)
 				_, _ = w.Write([]byte(config.NonWSResponse))
@@ -243,9 +285,14 @@ func CreateWispHandler(config *Config) http.HandlerFunc {
 			tc.SetWriteBuffer(1 << 20)
 		}
 
+		writeQSize := config.WriteQueueSize
+		if writeQSize <= 0 {
+			writeQSize = 4096
+		}
+
 		wc := &wispConnection{
 			netConn:        netConn,
-			writeCh:        make(chan writeReq, 4096), // funny number
+			writeCh:        make(chan writeReq, writeQSize),
 			config:         config,
 			twispStreams:   newTwisp(),
 			isV2:           useV2,
@@ -253,10 +300,22 @@ func CreateWispHandler(config *Config) http.HandlerFunc {
 			remoteIP:       remoteIP,
 			dialSem:        make(chan struct{}, maxConcurrentDials),
 			closeCh:        make(chan struct{}),
+			createdAt:      time.Now(),
+		}
+
+		if config.MaxPacketRate > 0 {
+			wc.packetLimiter = protection.NewPacketRateLimiter(config.MaxPacketRate)
+		}
+		if config.MaxInboundBytesPerSecond > 0 {
+			wc.inboundLimiter = protection.NewInboundRateLimiter(config.MaxInboundBytesPerSecond)
 		}
 
 		config.Logger.Info("connection established", "ip", remoteIP, "v2", useV2)
 		go wc.writeLoop()
+
+		if config.MaxConnectionLifetime > 0 {
+			go wc.lifetimeWatchdog()
+		}
 
 		if useV2 {
 			go wc.v2Handshake()

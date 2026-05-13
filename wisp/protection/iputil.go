@@ -89,6 +89,9 @@ func IsAllowedTargetIP(ip net.IP, cfg IPConfig) bool {
 	if ip.IsUnspecified() || ip.IsMulticast() {
 		return false
 	}
+	if isCarrierGradeNAT(ip) || isBenchmarkingIP(ip) {
+		return false
+	}
 	if !cfg.AllowLoopbackIPs && ip.IsLoopback() {
 		return false
 	}
@@ -105,6 +108,22 @@ func FirstAllowedIP(ips []net.IPAddr, cfg IPConfig) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func isCarrierGradeNAT(ip net.IP) bool {
+	ipv4 := ip.To4()
+	if ipv4 == nil {
+		return false
+	}
+	return ipv4[0] == 100 && ipv4[1]&0xC0 == 0x40
+}
+
+func isBenchmarkingIP(ip net.IP) bool {
+	ipv4 := ip.To4()
+	if ipv4 == nil {
+		return false
+	}
+	return ipv4[0] == 198 && (ipv4[1] == 18 || ipv4[1] == 19)
 }
 
 func NormalizeTargetHostname(host string) string {

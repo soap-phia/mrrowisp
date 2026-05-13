@@ -70,12 +70,22 @@ type Config struct {
 	StaticDir               string   `json:"staticDir"`
 	NonWSResponse           string   `json:"nonWSResponse"`
 	AllowedOrigins          []string `json:"allowedOrigins"`
+	WriteTimeoutSeconds     int      `json:"writeTimeoutSeconds"`
 	LogLevel                string   `json:"logLevel"`
 
-	BanEnabled         bool `json:"banEnabled"`
-	BanDurationSeconds int  `json:"banDurationSeconds"`
-	BanMaxStrikes      int  `json:"banMaxStrikes"`
-	MaxHandshakeFailures int `json:"maxHandshakeFailures"`
+	BanEnabled              bool `json:"banEnabled"`
+	BanDurationSeconds      int  `json:"banDurationSeconds"`
+	BanMaxStrikes           int  `json:"banMaxStrikes"`
+	BanEscalationMultiplier int  `json:"banEscalationMultiplier"`
+	MaxHandshakeFailures    int  `json:"maxHandshakeFailures"`
+
+	MaxPacketRate             int `json:"maxPacketRate"`
+	MaxConnectionLifetimeSec  int `json:"maxConnectionLifetimeSeconds"`
+	MaxStreamsPerConnection   int `json:"maxStreamsPerConnection"`
+	MaxConnectionsPerIP       int `json:"maxConnectionsPerIP"`
+	GlobalMaxConnections      int `json:"globalMaxConnections"`
+	WriteQueueSize            int `json:"writeQueueSize"`
+	MaxInboundBytesPerSecond  int `json:"maxInboundBytesPerSecond"`
 }
 
 const (
@@ -117,11 +127,21 @@ func defaultConfig() Config {
 		ConnectionsLimitPerIP:      defaultConnectionsLimitPerIP,
 		ParseRealIP:                true,
 		ParseRealIPFrom:            []string{"127.0.0.1"},
+		WriteTimeoutSeconds:        15,
 		LogLevel:                   "info",
-		BanEnabled:                 false,
+		NonWSResponse:              "not found",
+		BanEnabled:                 true,
 		BanDurationSeconds:         3600,
 		BanMaxStrikes:              10,
+		BanEscalationMultiplier:    0,
 		MaxHandshakeFailures:       defaultHandshakeFailures,
+		MaxPacketRate:              500,
+		MaxConnectionLifetimeSec:   0,
+		MaxStreamsPerConnection:    0,
+		MaxConnectionsPerIP:        0,
+		GlobalMaxConnections:       0,
+		WriteQueueSize:             4096,
+		MaxInboundBytesPerSecond:   0,
 	}
 }
 
@@ -185,8 +205,32 @@ func createWispConfig(cfg Config) *wisp.Config {
 	if cfg.MaxMessageSize < 0 {
 		cfg.MaxMessageSize = 0
 	}
+	if cfg.WriteTimeoutSeconds < 0 {
+		cfg.WriteTimeoutSeconds = 0
+	}
 	if cfg.MaxHandshakeFailures <= 0 {
 		cfg.MaxHandshakeFailures = defaultHandshakeFailures
+	}
+	if cfg.MaxPacketRate <= 0 {
+		cfg.MaxPacketRate = 500
+	}
+	if cfg.WriteQueueSize <= 0 {
+		cfg.WriteQueueSize = 4096
+	}
+	if cfg.MaxConnectionLifetimeSec < 0 {
+		cfg.MaxConnectionLifetimeSec = 0
+	}
+	if cfg.MaxStreamsPerConnection < 0 {
+		cfg.MaxStreamsPerConnection = 0
+	}
+	if cfg.MaxConnectionsPerIP < 0 {
+		cfg.MaxConnectionsPerIP = 0
+	}
+	if cfg.GlobalMaxConnections < 0 {
+		cfg.GlobalMaxConnections = 0
+	}
+	if cfg.MaxInboundBytesPerSecond < 0 {
+		cfg.MaxInboundBytesPerSecond = 0
 	}
 	if len(cfg.AllowedOrigins) > 0 {
 		filtered := make([]string, 0, len(cfg.AllowedOrigins))
@@ -308,11 +352,20 @@ func createWispConfig(cfg Config) *wisp.Config {
 		MaxMessageSize:             cfg.MaxMessageSize,
 		NonWSResponse:              cfg.NonWSResponse,
 		AllowedOrigins:             cfg.AllowedOrigins,
+		WriteTimeout:               time.Duration(cfg.WriteTimeoutSeconds) * time.Second,
 		LogLevel:                   cfg.LogLevel,
 		BanEnabled:                 cfg.BanEnabled,
 		BanDuration:                time.Duration(cfg.BanDurationSeconds) * time.Second,
 		BanMaxStrikes:              cfg.BanMaxStrikes,
+		BanEscalationMultiplier:    cfg.BanEscalationMultiplier,
 		MaxHandshakeFailures:       cfg.MaxHandshakeFailures,
+		MaxPacketRate:              cfg.MaxPacketRate,
+		MaxConnectionLifetime:      time.Duration(cfg.MaxConnectionLifetimeSec) * time.Second,
+		MaxStreamsPerConnection:    cfg.MaxStreamsPerConnection,
+		MaxConnectionsPerIP:        cfg.MaxConnectionsPerIP,
+		GlobalMaxConnections:       cfg.GlobalMaxConnections,
+		WriteQueueSize:             cfg.WriteQueueSize,
+		MaxInboundBytesPerSecond:   cfg.MaxInboundBytesPerSecond,
 	}
 
 	if wispCfg.PasswordUsers == nil {
@@ -354,7 +407,14 @@ func main() {
 	fParseRealIP := flag.Bool("parse-real-ip", true, "parse client IP from forwarded headers")
 	fParseRealIPFrom := flag.String("parse-real-ip-from", "", "comma-separated list of IPs allowed to set real IP")
 	fMaxMessageSize := flag.Int("max-message-size", 0, "max websocket message size in bytes")
+	fWriteTimeout := flag.Int("write-timeout", 0, "write timeout in seconds (0 = disabled)")
 	fAllowedOrigins := flag.String("allowed-origins", "", "comma-separated list of allowed origins")
+	fMaxPacketRate := flag.Int("max-packet-rate", 0, "max wisp packets/sec per connection (0=default)")
+	fMaxConnLifetime := flag.Int("max-conn-lifetime", 0, "max connection lifetime in seconds (0=unlimited)")
+	fMaxStreamsPerConn := flag.Int("max-streams-per-conn", 0, "max concurrent streams per connection (0=unlimited)")
+	fMaxConnPerIP := flag.Int("max-conn-per-ip", 0, "hard connection cap per IP (0=unlimited)")
+	fGlobalMaxConn := flag.Int("global-max-conn", 0, "global connection cap (0=unlimited)")
+	fInboundBPS := flag.Int("inbound-bps", 0, "max inbound bytes/sec per connection (0=unlimited)")
 	flag.Parse()
 
 	var cfg Config
@@ -432,6 +492,27 @@ func main() {
 	}
 	if *fMaxMessageSize != 0 {
 		cfg.MaxMessageSize = *fMaxMessageSize
+	}
+	if *fWriteTimeout != 0 {
+		cfg.WriteTimeoutSeconds = *fWriteTimeout
+	}
+	if *fMaxPacketRate != 0 {
+		cfg.MaxPacketRate = *fMaxPacketRate
+	}
+	if *fMaxConnLifetime != 0 {
+		cfg.MaxConnectionLifetimeSec = *fMaxConnLifetime
+	}
+	if *fMaxStreamsPerConn != 0 {
+		cfg.MaxStreamsPerConnection = *fMaxStreamsPerConn
+	}
+	if *fMaxConnPerIP != 0 {
+		cfg.MaxConnectionsPerIP = *fMaxConnPerIP
+	}
+	if *fGlobalMaxConn != 0 {
+		cfg.GlobalMaxConnections = *fGlobalMaxConn
+	}
+	if *fInboundBPS != 0 {
+		cfg.MaxInboundBytesPerSecond = *fInboundBPS
 	}
 	if *fAllowedOrigins != "" {
 		cfg.AllowedOrigins = strings.Split(*fAllowedOrigins, ",")
