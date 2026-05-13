@@ -256,6 +256,7 @@ Copy `example.config.json` to `config.json` and edit as needed. The example defa
 	"nonWSResponse": "mrrow merp >w<",
 	"allowedOrigins": ["https://example.com"],
 	"writeTimeoutSeconds": 15,
+	"frameReadTimeoutSeconds": 30,
 	"logLevel": "info",
 	"banEnabled": true,
 	"banDurationSeconds": 3600,
@@ -292,6 +293,7 @@ Copy `example.config.json` to `config.json` and edit as needed. The example defa
 | `writeQueueSize`             | int      | Write channel buffer size                     |
 | `maxInboundBytesPerSecond`   | int      | Max inbound bytes/sec per connection          |
 | `writeTimeoutSeconds`        | int      | Write timeout in seconds (0 = disabled)      |
+| `frameReadTimeoutSeconds`    | int      | Read timeout between frames (0 = disabled)   |
 | `tcpBufferSize`              | int      | TCP read buffer size                          |
 | `bufferRemainingLength`      | uint32   | Flow control buffer threshold                 |
 | `tcpNoDelay`                 | bool     | Enable TCP_NODELAY on outbound connections    |

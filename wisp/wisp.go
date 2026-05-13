@@ -67,6 +67,7 @@ type Config struct {
 	MaxMessageSize int
 	AllowedOrigins []string
 	WriteTimeout   time.Duration
+	FrameReadTimeout time.Duration
 
 	NonWSResponse string
 	LogLevel      string
@@ -130,6 +131,7 @@ func DefaultConfig() *Config {
 		BanMaxStrikes:           10,
 		BanEscalationMultiplier: 0,
 		WriteTimeout:            15 * time.Second,
+		FrameReadTimeout:        30 * time.Second,
 		MaxPacketRate:           500,
 		MaxConnectionLifetime:   0,
 		MaxStreamsPerConnection: 0,
@@ -183,6 +185,9 @@ func (c *Config) InitResolver() {
 	}
 	if c.WriteTimeout < 0 {
 		c.WriteTimeout = 0
+	}
+	if c.FrameReadTimeout < 0 {
+		c.FrameReadTimeout = 0
 	}
 }
 

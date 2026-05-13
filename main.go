@@ -71,6 +71,7 @@ type Config struct {
 	NonWSResponse           string   `json:"nonWSResponse"`
 	AllowedOrigins          []string `json:"allowedOrigins"`
 	WriteTimeoutSeconds     int      `json:"writeTimeoutSeconds"`
+	FrameReadTimeoutSeconds int      `json:"frameReadTimeoutSeconds"`
 	LogLevel                string   `json:"logLevel"`
 
 	BanEnabled              bool `json:"banEnabled"`
@@ -128,6 +129,7 @@ func defaultConfig() Config {
 		ParseRealIP:                true,
 		ParseRealIPFrom:            []string{"127.0.0.1"},
 		WriteTimeoutSeconds:        15,
+		FrameReadTimeoutSeconds:    30,
 		LogLevel:                   "info",
 		NonWSResponse:              "not found",
 		BanEnabled:                 true,
@@ -207,6 +209,9 @@ func createWispConfig(cfg Config) *wisp.Config {
 	}
 	if cfg.WriteTimeoutSeconds < 0 {
 		cfg.WriteTimeoutSeconds = 0
+	}
+	if cfg.FrameReadTimeoutSeconds < 0 {
+		cfg.FrameReadTimeoutSeconds = 0
 	}
 	if cfg.MaxHandshakeFailures <= 0 {
 		cfg.MaxHandshakeFailures = defaultHandshakeFailures
@@ -353,6 +358,7 @@ func createWispConfig(cfg Config) *wisp.Config {
 		NonWSResponse:              cfg.NonWSResponse,
 		AllowedOrigins:             cfg.AllowedOrigins,
 		WriteTimeout:               time.Duration(cfg.WriteTimeoutSeconds) * time.Second,
+		FrameReadTimeout:           time.Duration(cfg.FrameReadTimeoutSeconds) * time.Second,
 		LogLevel:                   cfg.LogLevel,
 		BanEnabled:                 cfg.BanEnabled,
 		BanDuration:                time.Duration(cfg.BanDurationSeconds) * time.Second,

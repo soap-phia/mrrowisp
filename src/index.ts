@@ -52,6 +52,7 @@ type MrrowispConfig = {
 	nonWSResponse: string;
 	allowedOrigins: string[];
 	writeTimeoutSeconds: number;
+	frameReadTimeoutSeconds: number;
 	logLevel: "debug" | "info" | "warn" | "error";
 	banEnabled: boolean;
 	banDurationSeconds: number;

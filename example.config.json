@@ -46,6 +46,7 @@
 	"nonWSResponse": "mrrow merp >w<",
 	"allowedOrigins": [],
 	"writeTimeoutSeconds": 15,
+	"frameReadTimeoutSeconds": 30,
 	"logLevel": "info",
 	"banEnabled": true,
 	"banDurationSeconds": 3600,
