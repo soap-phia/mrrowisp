@@ -22,6 +22,23 @@ func remoteIPFromRequest(r *http.Request, cfg *Config) string {
 	return r.RemoteAddr
 }
 
+func isIPAllowed(ip string, allowed map[string]struct{}) bool {
+	if _, ok := allowed[ip]; ok {
+		return true
+	}
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return false
+	}
+	for entry := range allowed {
+		_, cidr, err := net.ParseCIDR(entry)
+		if err == nil && cidr.Contains(parsed) {
+			return true
+		}
+	}
+	return false
+}
+
 func parseForwardedIP(r *http.Request, allowed map[string]struct{}) string {
 	if r == nil {
 		return ""
@@ -34,7 +51,7 @@ func parseForwardedIP(r *http.Request, allowed map[string]struct{}) string {
 	if err != nil {
 		return ""
 	}
-	if _, ok := allowed[host]; !ok {
+	if !isIPAllowed(host, allowed) {
 		return ""
 	}
 
