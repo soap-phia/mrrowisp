@@ -4,9 +4,9 @@ export type LogLevel = "debug" | "info" | "warn" | "error";
 
 const levelPriority: Record<LogLevel, number> = {
 	debug: 0,
-	info: 1,
-	warn: 2,
-	error: 3,
+	warn: 1,
+	error: 2,
+	info: 3,
 };
 
 class Logger {
