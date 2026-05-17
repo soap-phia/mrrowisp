@@ -6,6 +6,8 @@ import logger from "./logger.js";
 import { request, type IncomingMessage } from "node:http";
 import type { Socket } from "node:net";
 
+type PortEntry = number | [number, number];
+
 type MrrowispConfig = {
 	port: number;
 	allowTCP: boolean;
@@ -21,11 +23,11 @@ type MrrowispConfig = {
 	streamLimitTotal: number;
 	blacklist: {
 		hostnames: string[];
-		ports: number[]
+		ports: PortEntry[];
 	};
 	whitelist: {
 		hostnames: string[];
-		ports: number[]
+		ports: PortEntry[];
 	};
 	proxy: string;
 	websocketPermessageDeflate: boolean;

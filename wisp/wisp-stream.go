@@ -46,18 +46,23 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 	}
 
 	guard := newProtection(cfg)
+
+	// Check hostname/port rules against the original (pre-DNS) hostname.
 	if reason, ok := guard.allowHostPort(s.hostname, port); !ok {
 		s.close(reason)
 		return
 	}
 
 	resolvedHostname := s.hostname
+
 	if ip := net.ParseIP(resolvedHostname); ip != nil {
 		if reason, ok := guard.allowDirectIP(ip, s.wispConn.remoteIP, s.hostname); !ok {
 			s.close(reason)
 			return
 		}
 		resolvedHostname = ip.String()
+	} else if cfg.Proxy != "" {
+		resolvedHostname = s.hostname
 	} else if cfg.DNSCache != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), dnsLookupTimeout)
 		ips, err := cfg.DNSCache.LookupIPAddr(ctx, resolvedHostname)
@@ -94,13 +99,17 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 			return
 		}
 		if cfg.Proxy != "" {
-			dialer, proxyErr := proxy.SOCKS5("tcp", cfg.Proxy, nil, proxy.Direct)
+			proxyURL := cfg.Proxy
+			proxyURL = strings.Replace(proxyURL, "socks5h://", "socks5://", 1)
+			proxyURL = strings.Replace(proxyURL, "socks4a://", "socks4://", 1)
+			dialer, proxyErr := proxy.SOCKS5("tcp", stripScheme(proxyURL), nil, proxy.Direct)
 			if proxyErr != nil {
 				<-s.wispConn.dialSem
+				cfg.Logger.Warn("proxy dialer creation failed", "ip", s.wispConn.remoteIP, "error", proxyErr)
 				s.close(closeReasonNetworkError)
 				return
 			}
-			s.conn, err = dialer.Dial("tcp", destination)
+			s.conn, err = dialer.Dial("tcp", net.JoinHostPort(s.hostname, port))
 		} else {
 			s.conn, err = cfg.Dialer.Dial("tcp", destination)
 		}
@@ -134,13 +143,12 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 		s.wispConn.sendPacket(s.streamId, s.bufferRemaining)
 	}
 
-	s.signalConnReady()
-
 	s.pendingMutex.Lock()
 	pending := s.pendingData
 	s.pendingData = nil
 	s.pendingBytes = 0
 	s.pendingMutex.Unlock()
+
 	for _, data := range pending {
 		if !s.isOpen.Load() {
 			return
@@ -151,7 +159,17 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 		}
 	}
 
+	// Signal ready only after all pending data has been written in order.
+	s.signalConnReady()
+
 	s.readFromConnection()
+}
+
+func stripScheme(url string) string {
+	if idx := strings.Index(url, "://"); idx >= 0 {
+		return url[idx+3:]
+	}
+	return url
 }
 
 func (s *wispStream) signalConnReady() {
@@ -172,10 +190,10 @@ func (s *wispStream) readFromConnection() {
 	for {
 		n, err := s.conn.Read(buf[maxHeaderLen:])
 		if n > 0 {
-		if !guard.allowBandwidth(s.wispConn.remoteIP, n) {
-			s.close(closeReasonThrottled)
-			return
-		}
+			if !guard.allowBandwidth(s.wispConn.remoteIP, n) {
+				s.close(closeReasonThrottled)
+				return
+			}
 			totalPayload := 5 + n
 			var frameStart int
 

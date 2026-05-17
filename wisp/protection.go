@@ -3,6 +3,7 @@ package wisp
 import (
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 
 	prot "mrrowisp/wisp/protection"
@@ -131,13 +132,27 @@ func (p *guard) allowHostPort(hostname string, port string) (uint8, bool) {
 		}
 	}
 
+	portNum, err := strconv.Atoi(port)
+	if err != nil {
+		return closeReasonInvalidInfo, false
+	}
+
 	if len(cfg.Whitelist.Ports) > 0 {
-		if _, ok := cfg.Whitelist.Ports[port]; !ok {
+		allowed := false
+		for _, r := range cfg.Whitelist.Ports {
+			if r.Contains(portNum) {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
 			return closeReasonBlocked, false
 		}
 	} else if len(cfg.Blacklist.Ports) > 0 {
-		if _, ok := cfg.Blacklist.Ports[port]; ok {
-			return closeReasonBlocked, false
+		for _, r := range cfg.Blacklist.Ports {
+			if r.Contains(portNum) {
+				return closeReasonBlocked, false
+			}
 		}
 	}
 

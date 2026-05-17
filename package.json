@@ -26,6 +26,6 @@
 	},
 	"scripts": {
 		"compile": "tsc",
-		"build": "bun run compile && chmod +x ./build.sh && ./build.sh"
+		"build": "pnpm run compile && chmod +x ./build.sh && ./build.sh"
 	}
 }

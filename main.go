@@ -18,6 +18,33 @@ import (
 	"mrrowisp/wisp"
 )
 
+type PortEntry struct {
+	Min int
+	Max int
+}
+
+func (p *PortEntry) UnmarshalJSON(data []byte) error {
+	var single int
+	if err := json.Unmarshal(data, &single); err == nil {
+		if single <= 0 || single > 65535 {
+			return fmt.Errorf("invalid port %d", single)
+		}
+		p.Min = single
+		p.Max = single
+		return nil
+	}
+	var pair [2]int
+	if err := json.Unmarshal(data, &pair); err != nil {
+		return fmt.Errorf("port entry must be an integer or [min, max] pair: %w", err)
+	}
+	if pair[0] <= 0 || pair[1] > 65535 || pair[0] > pair[1] {
+		return fmt.Errorf("invalid port range [%d, %d]", pair[0], pair[1])
+	}
+	p.Min = pair[0]
+	p.Max = pair[1]
+	return nil
+}
+
 type Config struct {
 	Port                  int    `json:"port"`
 	AllowTCP              bool   `json:"allowTCP"`
@@ -33,12 +60,12 @@ type Config struct {
 	StreamLimitTotal      int    `json:"streamLimitTotal"`
 
 	Blacklist struct {
-		Hostnames []string `json:"hostnames"`
-		Ports     []int    `json:"ports"`
+		Hostnames []string    `json:"hostnames"`
+		Ports     []PortEntry `json:"ports"`
 	} `json:"blacklist"`
 	Whitelist struct {
-		Hostnames []string `json:"hostnames"`
-		Ports     []int    `json:"ports"`
+		Hostnames []string    `json:"hostnames"`
+		Ports     []PortEntry `json:"ports"`
 	} `json:"whitelist"`
 
 	Proxy                      string   `json:"proxy"`
@@ -80,8 +107,8 @@ type Config struct {
 	BanEscalationMultiplier int  `json:"banEscalationMultiplier"`
 	MaxHandshakeFailures    int  `json:"maxHandshakeFailures"`
 
-	MaxPacketRate             int `json:"maxPacketRate"`
-	MaxConnectionLifetimeSec  int `json:"maxConnectionLifetimeSeconds"`
+	MaxPacketRate            int `json:"maxPacketRate"`
+	MaxConnectionLifetimeSec int `json:"maxConnectionLifetimeSeconds"`
 	MaxStreamsPerConnection   int `json:"maxStreamsPerConnection"`
 	MaxConnectionsPerIP       int `json:"maxConnectionsPerIP"`
 	GlobalMaxConnections      int `json:"globalMaxConnections"`
@@ -130,7 +157,7 @@ func defaultConfig() Config {
 		ParseRealIPFrom:            []string{"127.0.0.1"},
 		WriteTimeoutSeconds:        15,
 		FrameReadTimeoutSeconds:    30,
-		LogLevel:                   "info",
+		LogLevel:                   "debug",
 		NonWSResponse:              "not found",
 		BanEnabled:                 true,
 		BanDurationSeconds:         3600,
@@ -172,18 +199,19 @@ func loadConfig(config string) (Config, error) {
 	return cfg, nil
 }
 
+func portEntriesToRanges(entries []PortEntry) []wisp.PortRange {
+	out := make([]wisp.PortRange, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, wisp.PortRange{Min: e.Min, Max: e.Max})
+	}
+	return out
+}
+
 func createWispConfig(cfg Config) *wisp.Config {
 	normalizeHostname := func(host string) string {
 		host = strings.TrimSpace(strings.ToLower(host))
 		host = strings.TrimSuffix(host, ".")
 		return host
-	}
-	normalizePort := func(port int) (string, bool) {
-		if port <= 0 || port > 65535 {
-			fmt.Printf("warning: invalid port %d\n", port)
-			return "", false
-		}
-		return fmt.Sprintf("%d", port), true
 	}
 
 	if cfg.TcpBufferSize <= 0 {
@@ -257,12 +285,6 @@ func createWispConfig(cfg Config) *wisp.Config {
 		}
 		blacklistedHostnames[normalized] = struct{}{}
 	}
-	blacklistedPorts := make(map[string]struct{})
-	for _, port := range cfg.Blacklist.Ports {
-		if normalized, ok := normalizePort(port); ok {
-			blacklistedPorts[normalized] = struct{}{}
-		}
-	}
 
 	whitelistedHostnames := make(map[string]struct{})
 	for _, host := range cfg.Whitelist.Hostnames {
@@ -271,12 +293,6 @@ func createWispConfig(cfg Config) *wisp.Config {
 			continue
 		}
 		whitelistedHostnames[normalized] = struct{}{}
-	}
-	whitelistedPorts := make(map[string]struct{})
-	for _, port := range cfg.Whitelist.Ports {
-		if normalized, ok := normalizePort(port); ok {
-			whitelistedPorts[normalized] = struct{}{}
-		}
 	}
 
 	var pubKeys []ed25519.PublicKey
@@ -320,17 +336,17 @@ func createWispConfig(cfg Config) *wisp.Config {
 		StreamLimitTotal:      cfg.StreamLimitTotal,
 		Blacklist: struct {
 			Hostnames map[string]struct{}
-			Ports     map[string]struct{}
+			Ports     []wisp.PortRange
 		}{
 			Hostnames: blacklistedHostnames,
-			Ports:     blacklistedPorts,
+			Ports:     portEntriesToRanges(cfg.Blacklist.Ports),
 		},
 		Whitelist: struct {
 			Hostnames map[string]struct{}
-			Ports     map[string]struct{}
+			Ports     []wisp.PortRange
 		}{
 			Hostnames: whitelistedHostnames,
-			Ports:     whitelistedPorts,
+			Ports:     portEntriesToRanges(cfg.Whitelist.Ports),
 		},
 		Proxy:                      cfg.Proxy,
 		WebsocketPermessageDeflate: cfg.WebsocketPermessageDeflate,

@@ -13,6 +13,15 @@ import (
 	"github.com/lxzan/gws"
 )
 
+type PortRange struct {
+	Min int
+	Max int
+}
+
+func (r PortRange) Contains(p int) bool {
+	return p >= r.Min && p <= r.Max
+}
+
 type Config struct {
 	AllowTCP         bool
 	AllowUDP         bool
@@ -30,11 +39,11 @@ type Config struct {
 
 	Blacklist struct {
 		Hostnames map[string]struct{}
-		Ports     map[string]struct{}
+		Ports     []PortRange
 	}
 	Whitelist struct {
 		Hostnames map[string]struct{}
-		Ports     map[string]struct{}
+		Ports     []PortRange
 	}
 
 	Proxy                      string
