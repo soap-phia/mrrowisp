@@ -82,6 +82,7 @@ export class Mrrowisp {
 		if (config) {
 			this.config = { ...this.config, ...config };
 		}
+		logger.level = this.config.logLevel;
 	}
 
 	async start() {
@@ -94,13 +95,23 @@ export class Mrrowisp {
 			stdio: "pipe"
 		});
 
-		this.process.stdout?.on("data", (data) => {
-			logger.info(data);
-		});
+		const handleData = (data: Buffer) => {
+			const msg = data.toString().trim();
+			const levelMatch = msg.match(/^\[(DEBUG|INFO|WARN|ERROR)\]/);
+			if (levelMatch) {
+				switch (levelMatch[1]) {
+					case "DEBUG": logger.debug(msg); break;
+					case "INFO": logger.info(msg); break;
+					case "WARN": logger.warn(msg); break;
+					case "ERROR": logger.error(msg); break;
+				}
+			} else {
+				logger.error(msg);
+			}
+		};
 
-		this.process.stderr?.on("data", (data) => {
-			logger.error(data);
-		});
+		this.process.stdout?.on("data", handleData);
+		this.process.stderr?.on("data", handleData);
 
 		this.process.on("close", (code) => {
 			logger.info(`child process exited with code ${code} D:`);
