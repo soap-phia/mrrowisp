@@ -448,7 +448,7 @@ func main() {
 	if *fAllowUDP != true {
 		cfg.AllowUDP = *fAllowUDP
 	}
-	if *fAllowDirectIP != true {
+	if *fAllowDirectIP != false {
 		cfg.AllowDirectIP = *fAllowDirectIP
 	}
 	if *fAllowPrivateIPs != false {
