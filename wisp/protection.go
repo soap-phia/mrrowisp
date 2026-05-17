@@ -103,7 +103,7 @@ func (p *guard) allowConnect(c *wispConnection, streamType uint8, hostname strin
 		return connectBlocked, "", closeReasonInvalidInfo
 	}
 
-	if prot.IsOwnIP(normalizedHostname) {
+	if !cfg.AllowLoopbackIPs && prot.IsOwnIP(normalizedHostname) {
 		cfg.Logger.Warn("self-targeting stream blocked", "ip", c.remoteIP, "hostname", hostname)
 		return connectBlocked, "", closeReasonBlocked
 	}
@@ -157,7 +157,7 @@ func (p *guard) allowDirectIP(ip net.IP, remoteIP string, hostname string) (uint
 	}) {
 		return closeReasonBlocked, false
 	}
-	if prot.IsOwnIP(ip.String()) {
+	if !cfg.AllowLoopbackIPs && prot.IsOwnIP(ip.String()) {
 		cfg.Logger.Warn("self-targeting stream blocked", "ip", remoteIP, "hostname", hostname)
 		return closeReasonBlocked, false
 	}
@@ -177,7 +177,7 @@ func (p *guard) selectAllowedIP(ips []net.IPAddr, remoteIP string, hostname stri
 		cfg.Logger.Warn("DNS returned only blocked IPs", "ip", remoteIP, "hostname", hostname)
 		return "", closeReasonBlocked, false
 	}
-	if prot.IsOwnIP(selected) {
+	if !cfg.AllowLoopbackIPs && prot.IsOwnIP(selected) {
 		cfg.Logger.Warn("self-targeting stream blocked", "ip", remoteIP, "hostname", hostname)
 		return "", closeReasonBlocked, false
 	}
