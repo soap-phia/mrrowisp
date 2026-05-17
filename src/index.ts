@@ -3,12 +3,14 @@ import { binPath, configPath } from "./path.js";
 import * as fs from "node:fs";
 import { detect } from 'detect-port';
 import logger from "./logger.js";
+import { request, type IncomingMessage } from "node:http";
+import type { Socket } from "node:net";
 
 type MrrowispConfig = {
-    port: number;
-    allowTCP: boolean;
-    allowUDP: boolean;
-    allowDirectIP: boolean;
+	port: number;
+	allowTCP: boolean;
+	allowUDP: boolean;
+	allowDirectIP: boolean;
 	allowPrivateIPs: boolean;
 	allowLoopbackIPs: boolean;
 	tcpBufferSize: number;
@@ -71,56 +73,98 @@ type MrrowispConfig = {
 const defaultConfig: MrrowispConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
 
 export class Mrrowisp {
-    config: MrrowispConfig;
-    process: ChildProcess | undefined;
+	config: MrrowispConfig;
+	process: ChildProcess | undefined;
 
-    constructor(config?: Partial<MrrowispConfig>) {
-        this.config = defaultConfig;
-        this.process = undefined;
-        if (config) {
-            this.config = { ...this.config, ...config };
-        }
-    }
+	constructor(config?: Partial<MrrowispConfig>) {
+		this.config = defaultConfig;
+		this.process = undefined;
+		if (config) {
+			this.config = { ...this.config, ...config };
+		}
+	}
 
-    async start() {
-        if (await detect(this.config.port) !== this.config.port) {
-            logger.error(`port ${this.config.port} is not available!! >w<`);
-            return;
-        }
+	async start() {
+		if (await detect(this.config.port) !== this.config.port) {
+			logger.error(`port ${this.config.port} is not available!! >w<`);
+			return;
+		}
 
-        this.process = spawn(binPath, ["--config", JSON.stringify(this.config)], {
-            stdio: "pipe"
-        });
+		this.process = spawn(binPath, ["--config", JSON.stringify(this.config)], {
+			stdio: "pipe"
+		});
 
-        this.process.stdout?.on("data", (data) => {
-            logger.info(data);
-        });
+		this.process.stdout?.on("data", (data) => {
+			logger.info(data);
+		});
 
-        this.process.stderr?.on("data", (data) => {
-            logger.error(data);
-        });
+		this.process.stderr?.on("data", (data) => {
+			logger.error(data);
+		});
 
-        this.process.on("close", (code) => {
-            logger.info(`child process exited with code ${code} D:`);
-            this.process = undefined;
-        });
-    }
+		this.process.on("close", (code) => {
+			logger.info(`child process exited with code ${code} D:`);
+			this.process = undefined;
+		});
+	}
 
-    async stop() {
-        if (this.process) {
-            this.process.kill("SIGTERM");
-            this.process = undefined;
-        } else {
-            logger.warn("mrrowisp is not running...");
-        }
-    }
+	async route(req: IncomingMessage, socket: Socket, head: Buffer) {
+		if (!this.process) {
+			logger.error("mrrowisp is not running!! >w<");
+			socket.destroy();
+			return;
+		}
 
-    async kill() {
-        if (this.process) {
-            this.process.kill("SIGKILL");
-            this.process = undefined;
-        } else {
-            logger.warn("mrrowisp is not running...");
-        }
-    }
+		const proxyReq = request({
+			hostname: "127.0.0.1",
+			port: this.config.port,
+			path: req.url,
+			method: req.method,
+			headers: req.headers,
+		});
+
+		proxyReq.on("upgrade", (proxyRes, proxySocket, proxyHead) => {
+			socket.write(
+				`HTTP/1.1 101 Switching Protocols\r\n` +
+				Object.entries(proxyRes.headers)
+					.map(([k, v]) => `${k}: ${v}`)
+					.join("\r\n") +
+				"\r\n\r\n"
+			);
+
+			if (proxyHead?.length) proxySocket.unshift(proxyHead);
+			if (head?.length) socket.unshift(head);
+
+			proxySocket.pipe(socket);
+			socket.pipe(proxySocket);
+
+			proxySocket.on("error", () => socket.destroy());
+			socket.on("error", () => proxySocket.destroy());
+		});
+
+		proxyReq.on("error", (err) => {
+			logger.error(`proxy request error: ${err.message}`);
+			socket.destroy();
+		});
+
+		proxyReq.end();
+	}
+
+	async stop() {
+		if (this.process) {
+			this.process.kill("SIGTERM");
+			this.process = undefined;
+		} else {
+			logger.warn("mrrowisp is not running...");
+		}
+	}
+
+	async kill() {
+		if (this.process) {
+			this.process.kill("SIGKILL");
+			this.process = undefined;
+		} else {
+			logger.warn("mrrowisp is not running...");
+		}
+	}
 }
