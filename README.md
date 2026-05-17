@@ -175,17 +175,6 @@ All fields with their defaults as defined in `example.config.json`:
 | `logLevel` | string | `"info"` | `debug`, `info`, `warn`, `error` |
 | `writeQueueSize` | int | `4096` | WebSocket write channel buffer |
 
-## DDoS & host-level hardening
-
-See [`HARDENING.md`](HARDENING.md) for kernel tuning, firewall rules, and Docker
-configuration to protect against TCP SYN floods and other network-level attacks.
-
-In-application protections (no OS config needed) include all of the above, plus:
-- Non-blocking writes with immediate flush on slow reader
-- Connection counter release on all close paths
-- Pooled frame buffers to reduce allocation pressure under load
-- DNS singleflight to collapse concurrent lookups
-
 ## Credits
  - [soap phia](https://github.com/soap-phia/) - writing most of this
  - [rebecca](https://github.com/rebeccaheartz69/) - greatly helping with implementing wisp v2 and extensions
