@@ -1,4 +1,6 @@
 dist
+bin
 node_modules
 config.json
-mrrowisp*
+mrrowisp
+mrrowisp.exe

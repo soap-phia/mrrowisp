@@ -4,237 +4,176 @@ it has the zoomies
 
 so quick story abt how this was made, this was the initial project, then amplify made me write a whole new wisp library, then i scrapped that and wrote this in rust. this has still been faster than all of them. every single time.
 
-> [!WARNING]
-> Twisp, and by extension mrrowisp, does NOT work on windows! linux and macos supported tho
+> Twisp does NOT work on windows! linux and macos supported tho
+
+A Wisp v1/v2 server written in Go. TCP and UDP stream multiplexing over WebSocket
+with sane defaults, built-in DDoS protections, and minimal resource usage.
 
 ## Features
 
-- Wisp v1 and v2 protocol support
-- TCP and UDP stream multiplexing over WebSocket
-- Twisp (terminal over wisp) support for remote shell access
-- Password and Ed25519 certificate authentication (v2)
-- Hostname blacklist/whitelist filtering
+**Protocol support**
+- Wisp v1 and v2 (RFC 6184 compliant)
+- V2 features: UDP advertisement, MOTD, stream confirm, password + Ed25519 cert auth
+- Twisp (terminal over wisp) for remote shell access
+
+**Access control**
+- Hostname / port blacklist and whitelist
+- Direct IP, private IP, loopback, CGNAT (`100.64.0.0/10`), and benchmark
+  (`198.18.0.0/15`) target filtering
+- Origin allowlisting
 - SOCKS5 proxy support for upstream connections
-- Custom DNS server with caching
-- WebSocket permessage-deflate compression
+
+**Rate limiting & DDoS protection**
+- Per-IP connection rate limit (sliding window)
+- Per-IP hard connection cap
+- Global connection cap
+- Per-connection Wisp packet rate limit
+- Per-connection inbound byte rate limit
+- Per-IP bandwidth limit (outbound)
+- Per-host and total stream limits
+- Per-connection concurrent stream cap
+- Connect rate limiter per connection
+- Max message size enforcement
+- Handshake failure cutoff
+- Write deadline (stalled client)
+- Frame read deadline (idle client, slowloris)
+- Connection lifetime watchdog
+- Non-blocking write channel with backpressure
+
+**Ban system**
+- Configurable max strikes before ban
+- Configurable ban duration
+- Escalation multiplier (increase ban time for repeat offenders)
+- Automatic cleanup of expired bans
+
+**Networking**
+- Custom DNS servers with caching
+- DNS method (`lookup` / `resolve` with singleflight dedup)
+- DNS result ordering (ipv4first, ipv6first, verbatim)
 - Configurable TCP buffer sizes and flow control
+- `TCP_NODELAY` on WebSocket and outbound connections
+- Configurable write queue size
+
+**Operational**
+- Config file or CLI flags
+- Graceful shutdown (SIGINT / SIGTERM)
+- Structured logging with levels
+- Static file serving
+- Non-WebSocket response customization
+- WebSocket permessage-deflate (advertised only)
+- Buffer pooling for hot paths
+- DNSSEC safe
 
 ## Installation
 
-### Go Binary
+### Go binary
 
 ```bash
-go build -o mrrowisp
+go build -o mrrowisp .
 ```
 
-### Node / Bun
+### Node / Bun wrapper
 
 ```bash
 bun add mrrowisp
-# or
 npm install mrrowisp
 ```
 
-## Usage
-
-### TypeScript / JavaScript
-
-```ts
-import { createMrrowisp } from "mrrowisp";
-
-// Basic start and stop
-const server = await createMrrowisp()
-	.port(6001)
-	.v2(true)
-	.start();
-
-// later
-await server.stop();
-```
-
-#### Configuration
-
-```ts
-const server = await createMrrowisp()
-	.port(6001)
-	.v2(true)
-	.udp(true)
-	.twisp(true)
-	.motd("mrrow merp purr :3")
-	.blacklist(["truthsocial.com"]) // idk i'd block this
-	.dns(["8.8.8.8","1.1.1.1"])
-	.start();
-```
-
-#### Event Handlers
-
-```ts
-const server = await createMrrowisp()
-	.port(6001)
-	.onReady(() => {
-		console.log("Server is ready!");
-	})
-	.onError((err) => {
-		console.error("Server error:", err);
-	})
-	.onExit((code, signal) => {
-		console.log(`Server exited (code: ${code}, signal: ${signal})`);
-	})
-	.onStdout((data) => {
-		console.log(`[mrrowisp] ${data}`);
-	})
-	.onStderr((data) => {
-		console.error(`[mrrowisp] ${data}`);
-	})
-	.start();
-
-server.on("error", (err) => console.error(err));
-server.on("exit", (code) => console.log(`Exit: ${code}`));
-```
-
-#### Loading Config
-
-```ts
-// Load from a config file
-const server = await createMrrowisp()
-	.fromFile("./config.json")
-	.start();
-
-// Merge multiple sources
-const server = await createMrrowisp()
-	.fromFile("./config.json")
-	.withConfig({ port: 8080 })	// Override specific values
-	.start();
-
-// Or from a JSON config
-const server = await createMrrowisp()
-	.fromJSON('{"port": 6001, "enableV2": true}')
-	.start();
-```
-
-#### Server Control
-
-```ts
-const server = await createMrrowisp().port(6001).start();
-
-// Check if server is running
-console.log(server.running);
-
-// Access the config
-console.log(server.config);
-
-// Access the child process
-console.log(server.process.pid);
-
-// Graceful shutdown
-await server.stop();
-
-// Force kill
-server.kill();
-server.kill("SIGTERM");
-```
-
-#### Builder Methods
-
-| Method                 | Description                        |
-| ---------------------- | ---------------------------------- |
-| `fromFile(path)`       | Load config from a JSON file       |
-| `fromJSON(json)`       | Load config from a JSON string     |
-| `withConfig(config)`   | Merge a partial config object      |
-| `port(port)`           | Set the server port                |
-| `udp(enabled)`         | Enable/disable UDP support         |
-| `v2(enabled)`          | Enable/disable Wisp v2 protocol    |
-| `twisp(enabled)`       | Enable/disable terminal over wisp  |
-| `motd(message)`        | Set message of the day             |
-| `blacklist(hostnames)` | Set blocked hostnames              |
-| `whitelist(hostnames)` | Set whitelisted hostnames          |
-| `proxy(url)`           | Set SOCKS5 proxy address           |
-| `dns(server)`          | Set custom DNS server              |
-| `onReady(cb)`          | Callback when server starts        |
-| `onError(cb)`          | Callback on errors                 |
-| `onExit(cb)`           | Callback when server exits         |
-| `onStdout(cb)`         | Callback for stdout data           |
-| `onStderr(cb)`         | Callback for stderr data           |
-| `getConfig()`          | Get the current config object      |
-| `start()`              | Start the server (returns Promise) |
-
-#### Server Methods
-
-| Method           | Description                         |
-| ---------------- | ----------------------------------- |
-| `stop()`         | Graceful shutdown (returns Promise) |
-| `kill(signal?)`  | Force kill with optional signal     |
-| `on(event, cb)`  | Add event listener                  |
-| `off(event, cb)` | Remove event listener               |
-| `running`        | Whether the server is running       |
-| `config`         | The resolved configuration          |
-| `process`        | The underlying ChildProcess         |
-
-### CLI
+## Quick start
 
 ```bash
+# Use defaults (port 6001, bans enabled, direct IP blocked)
 ./mrrowisp
+
+# With a config file
+./mrrowisp -config config.json
+
+# Override specific settings via flags
+./mrrowisp -port 8080 -max-packet-rate 200 -global-max-conn 500
 ```
 
-## Configuration
+See `example.config.json` for all available options.
 
-Copy `example.config.json` to `config.json` and edit as needed:
+## Configuration reference
 
-```json
-{
-	"port": "6001",
-	"disableUDP": false,
-	"tcpBufferSize": 65535,
-	"bufferRemainingLength": 1024,
-	"tcpNoDelay": true,
-	"websocketTcpNoDelay": true,
-	"blacklist": {
-		"hostnames": []
-	},
-	"whitelist": {
-		"hostnames": []
-	},
-	"proxy": "",
-	"websocketPermessageDeflate": false,
-	"dnsServer": "",
-	"enableTwisp": false,
-	"enableV2": true,
-	"motd": "",
-	"passwordAuth": false,
-	"passwordAuthRequired": false,
-	"passwordUsers": {},
-	"certAuth": false,
-	"certAuthRequired": false,
-	"certAuthPublicKeys": [],
-	"enableStreamConfirm": false
-}
-```
+All fields with their defaults as defined in `example.config.json`:
 
-### Configuration Options
-
-| Option                       | Type     | Description                                   |
-| ---------------------------- | -------- | --------------------------------------------- |
-| `port`                       | string   | Port to listen on                             |
-| `disableUDP`                 | bool     | Disable UDP stream support                    |
-| `tcpBufferSize`              | int      | TCP read buffer size                          |
-| `bufferRemainingLength`      | uint32   | Flow control buffer threshold                 |
-| `tcpNoDelay`                 | bool     | Enable TCP_NODELAY on outbound connections    |
-| `websocketTcpNoDelay`        | bool     | Enable TCP_NODELAY on WebSocket connections   |
-| `blacklist.hostnames`        | []string | Hostnames to block                            |
-| `whitelist.hostnames`        | []string | Hostnames to bypass DNS resolution            |
-| `proxy`                      | string   | SOCKS5 proxy address (e.g., `127.0.0.1:1080`) |
-| `websocketPermessageDeflate` | bool     | Enable WebSocket compression                  |
-| `dnsServer`                  | string   | Custom DNS server (e.g., `8.8.8.8:53`)        |
-| `enableTwisp`                | bool     | Enable terminal streams (Unix only)           |
-| `enableV2`                   | bool     | Enable Wisp v2 protocol                       |
-| `motd`                       | string   | Message of the day sent to v2 clients         |
-| `passwordAuth`               | bool     | Enable password authentication                |
-| `passwordAuthRequired`       | bool     | Require password authentication               |
-| `passwordUsers`              | object   | Username/password map                         |
-| `certAuth`                   | bool     | Enable Ed25519 certificate authentication     |
-| `certAuthRequired`           | bool     | Require certificate authentication            |
-| `certAuthPublicKeys`         | []string | Allowed Ed25519 public keys (hex-encoded)     |
-| `enableStreamConfirm`        | bool     | Send confirmation when streams connect        |
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| **Network** | | | |
+| `port` | int | `6001` | Listen port |
+| `allowTCP` | bool | `true` | Allow TCP streams |
+| `allowUDP` | bool | `true` | Allow UDP streams |
+| `tcpBufferSize` | int | `65535` | TCP read buffer size |
+| `bufferRemainingLength` | uint32 | `1024` | Flow control buffer threshold |
+| `tcpNoDelay` | bool | `true` | TCP_NODELAY on outbound TCP |
+| `websocketTcpNoDelay` | bool | `true` | TCP_NODELAY on WebSocket socket |
+| `proxy` | string | `""` | SOCKS5 proxy address |
+| `websocketPermessageDeflate` | bool | `false` | Advertise permessage-deflate |
+| | | | |
+| **Access control** | | | |
+| `allowDirectIP` | bool | `false` | Allow connections to raw IPs |
+| `allowPrivateIPs` | bool | `false` | Allow private / link-local targets |
+| `allowLoopbackIPs` | bool | `false` | Allow loopback targets |
+| `blacklist.hostnames` | []string | `[]` | Hostnames to block |
+| `blacklist.ports` | []int | `[]` | Destination ports to block |
+| `whitelist.hostnames` | []string | `[]` | Hostnames to allow (skip blacklist) |
+| `whitelist.ports` | []int | `[]` | Ports to allow (skip blacklist) |
+| `allowedOrigins` | []string | `[]` | Allowed Origin header values (empty = any) |
+| `parseRealIP` | bool | `true` | Parse X-Forwarded-For / X-Real-IP |
+| `parseRealIPFrom` | []string | `["127.0.0.1"]` | IPs/CIDRs trusted to set real-IP headers |
+| | | | |
+| **Rate limiting** | | | |
+| `connectionsLimitPerIP` | int | `20` | Max new connections per IP per window |
+| `connectionWindowSeconds` | int | `10` | Rate limit window |
+| `maxConnectionsPerIP` | int | `0` | Hard concurrent connection cap per IP |
+| `globalMaxConnections` | int | `0` | Hard concurrent connection cap total |
+| `maxConnectsPerSecond` | int | `5` | Max connect packets / sec per connection |
+| `maxPacketRate` | int | `500` | Max Wisp frames / sec per connection |
+| `maxInboundBytesPerSecond` | int | `0` | Inbound data rate per connection |
+| `bandwidthLimitKbps` | int | `5000` | Outbound bandwidth per IP |
+| `maxMessageSize` | int | `0` | Max WebSocket frame payload (0 = 256KB) |
+| `streamLimitPerHost` | int | `64` | Max concurrent streams per hostname |
+| `streamLimitTotal` | int | `2048` | Max concurrent streams total |
+| `maxStreamsPerConnection` | int | `0` | Max concurrent streams per client |
+| | | | |
+| **Timeouts** | | | |
+| `writeTimeoutSeconds` | int | `15` | Write deadline (0 = disabled) |
+| `frameReadTimeoutSeconds` | int | `30` | Idle timeout between frames (0 = disabled) |
+| `maxConnectionLifetimeSeconds` | int | `0` | Max connection duration (0 = unlimited) |
+| | | | |
+| **Abuse detection** | | | |
+| `maxHandshakeFailures` | int | `10` | Bad frames before disconnect |
+| `banEnabled` | bool | `true` | Enable IP banning |
+| `banDurationSeconds` | int | `3600` | Ban duration |
+| `banMaxStrikes` | int | `5` | Strikes before ban |
+| `banEscalationMultiplier` | int | `0` | Multiply ban duration per re-offense |
+| | | | |
+| **Authentication (v2)** | | | |
+| `enableV2` | bool | `true` | Enable Wisp v2 protocol |
+| `passwordAuth` | bool | `false` | Enable password auth |
+| `passwordAuthRequired` | bool | `false` | Reject unauthenticated clients |
+| `passwordUsers` | object | `{}` | Username → password map |
+| `certAuth` | bool | `false` | Enable Ed25519 certificate auth |
+| `certAuthRequired` | bool | `false` | Reject unauthenticated clients |
+| `certAuthPublicKeys` | []string | `[]` | Allowed Ed25519 public keys (hex) |
+| | | | |
+| **Wisp v2 extensions** | | | |
+| `motd` | string | `""` | Message of the day |
+| `enableStreamConfirm` | bool | `false` | Confirm TCP stream connects |
+| `enableTwisp` | bool | `false` | Terminal over wisp (Unix only) |
+| | | | |
+| **DNS** | | | |
+| `dnsServers` | []string | `[]` | Custom DNS servers |
+| `dnsTTLSeconds` | int | `120` | DNS cache TTL |
+| `dnsMethod` | string | `"lookup"` | `lookup` (system) or `resolve` (custom) |
+| `dnsResultOrder` | string | `"verbatim"` | `ipv4first`, `ipv6first`, `verbatim` |
+| | | | |
+| **Other** | | | |
+| `staticDir` | string | `""` | Serve static files from this directory |
+| `nonWSResponse` | string | `"not found"` | Response for non-WebSocket requests |
+| `logLevel` | string | `"info"` | `debug`, `info`, `warn`, `error` |
+| `writeQueueSize` | int | `4096` | WebSocket write channel buffer |
 
 ## Credits
  - [soap phia](https://github.com/soap-phia/) - writing most of this

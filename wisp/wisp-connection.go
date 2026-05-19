@@ -4,17 +4,53 @@ import (
 	"encoding/binary"
 	"net"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
+
+	prot "mrrowisp/wisp/protection"
 )
+
+const (
+	maxConnectsPerSecond = 20
+	connectRateWindow    = time.Second
+	minFramePoolCap      = 64 * 1024
+)
+
+type connectRateLimiter struct {
+	mutex       sync.Mutex
+	windowStart time.Time
+	count       int
+	limit       int
+}
+
+func newConnectRateLimiter(limit int) *connectRateLimiter {
+	if limit <= 0 {
+		limit = maxConnectsPerSecond
+	}
+	return &connectRateLimiter{windowStart: time.Now(), limit: limit}
+}
+
+func (r *connectRateLimiter) allow() bool {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	now := time.Now()
+	if now.Sub(r.windowStart) >= connectRateWindow {
+		r.windowStart = now
+		r.count = 0
+	}
+	r.count++
+	return r.count <= r.limit
+}
 
 type writeReq struct {
 	data []byte
 	pool bool
 }
+
+const maxConcurrentDials = 50
+const maxPendingStreamBytes = 16 * 1024 * 1024
 
 type wispConnection struct {
 	netConn        net.Conn
@@ -41,24 +77,34 @@ type wispConnection struct {
 }
 
 func (c *wispConnection) close() {
-	if !c.isClosed.CompareAndSwap(false, true) {
-		return
-	}
-	c.netConn.Close()
+	c.terminateNetwork()
 }
 
 func (c *wispConnection) writeLoop() {
 	for req := range c.writeCh {
-		bufs := net.Buffers{req.data}
+		reqs := []writeReq{req}
 		n := len(c.writeCh)
 		for i := 0; i < n; i++ {
-			r := <-c.writeCh
+			reqs = append(reqs, <-c.writeCh)
+		}
+		bufs := make(net.Buffers, 0, len(reqs))
+		for _, r := range reqs {
 			bufs = append(bufs, r.data)
 		}
+		if c.config != nil && c.config.WriteTimeout > 0 {
+			_ = c.netConn.SetWriteDeadline(time.Now().Add(c.config.WriteTimeout))
+		}
 		if _, err := bufs.WriteTo(c.netConn); err != nil {
-			c.isClosed.Store(true)
-			c.netConn.Close()
+			c.terminateNetwork()
 			return
+		}
+		if c.config != nil && c.config.WriteTimeout > 0 {
+			_ = c.netConn.SetWriteDeadline(time.Time{})
+		}
+		for _, r := range reqs {
+			if r.pool {
+				c.releaseFrame(r.data)
+			}
 		}
 	}
 }
@@ -135,6 +181,7 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 	if len(payload) < 3 {
 		return
 	}
+	guard := newProtection(c.config)
 	streamType := payload[0]
 	port := strconv.FormatUint(uint64(binary.LittleEndian.Uint16(payload[1:3])), 10)
 	hostname := string(payload[3:])
@@ -149,15 +196,31 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 		return
 	}
 
+	maxStreams := c.config.MaxStreamsPerConnection
+	if maxStreams > 0 {
+		cur := int(c.streamCount.Load())
+		if cur >= maxStreams {
+			c.config.Logger.Warn("streams per connection exceeded", "ip", c.remoteIP, "limit", maxStreams)
+			if c.config.StreamLimiter != nil {
+				c.config.StreamLimiter.Release(normalizedHostname)
+			}
+			c.sendClosePacket(streamId, closeReasonThrottled)
+			return
+		}
+	}
+
 	stream := &wispStream{
 		wispConn:  c,
 		streamId:  streamId,
 		connReady: make(chan struct{}),
-		hostname:  strings.ToLower(strings.TrimSpace(hostname)),
+		hostname:  normalizedHostname,
 	}
 	stream.isOpen.Store(true)
 
 	if _, loaded := c.streams.LoadOrStore(streamId, stream); loaded {
+		if c.config.StreamLimiter != nil {
+			c.config.StreamLimiter.Release(stream.hostname)
+		}
 		close(stream.connReady)
 		return
 	}
@@ -167,6 +230,23 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 }
 
 func (c *wispConnection) handleDataPacket(streamId uint32, payload []byte) {
+	guard := newProtection(c.config)
+	if c.packetLimiter != nil && !c.packetLimiter.Allow() {
+		c.sendClosePacket(streamId, closeReasonThrottled)
+		return
+	}
+	if c.inboundLimiter != nil && !c.inboundLimiter.Allow(len(payload)) {
+		c.sendClosePacket(streamId, closeReasonThrottled)
+		return
+	}
+	if !guard.allowBandwidth(c.remoteIP, len(payload)) {
+		c.sendClosePacket(streamId, closeReasonThrottled)
+		return
+	}
+	if !guard.allowMessageSize(len(payload)) {
+		c.sendClosePacket(streamId, closeReasonInvalidInfo)
+		return
+	}
 	var stream *wispStream
 	if c.cachedStreamId == streamId {
 		stream = (*wispStream)(atomic.LoadPointer(&c.cachedStream))
