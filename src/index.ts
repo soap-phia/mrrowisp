@@ -9,68 +9,152 @@ import type { Socket } from "node:net";
 type PortEntry = number | [number, number];
 
 type MrrowispConfig = {
+	/**
+	 * TCP port the server listens on.
+	 */
 	port: number;
+
+	/**
+	 * Allow clients to open TCP streams.
+	 */
 	allowTCP: boolean;
+
+	/**
+	 * Allow clients to open UDP streams.
+	 */
 	allowUDP: boolean;
+
+	/**
+	 * Allow direct connections to IP addresses.
+	 */
 	allowDirectIP: boolean;
+
+	/**
+	 * Allow connections to private/local IP ranges.
+	 */
 	allowPrivateIPs: boolean;
+
+	/**
+	 * Allow connections to loopback IP addresses.
+	 */
 	allowLoopbackIPs: boolean;
+
+	/**
+	 * Size of the TCP stream buffer in bytes.
+	 */
 	tcpBufferSize: number;
-	bufferRemainingLength: number;
+
+	/**
+	 * Enable TCP_NODELAY on TCP sockets.
+	 */
 	tcpNoDelay: boolean;
-	websocketTcpNoDelay: boolean;
-	streamLimitPerHost: number;
-	streamLimitTotal: number;
+
+	/**
+	 * Hostname and port blacklist rules.
+	 */
 	blacklist: {
 		hostnames: string[];
 		ports: PortEntry[];
 	};
+
+	/**
+	 * Hostname and port whitelist rules.
+	 */
 	whitelist: {
 		hostnames: string[];
 		ports: PortEntry[];
 	};
-	proxy: string;
-	websocketPermessageDeflate: boolean;
+
+	/**
+	 * DNS servers used for hostname resolution.
+	 */
 	dnsServers: string[];
-	dnsTTLSeconds: number;
+
+	/**
+	 * DNS resolution method.
+	 */
 	dnsMethod: "lookup" | "resolve";
+
+	/**
+	 * Preferred ordering for resolved IP addresses.
+	 */
 	dnsResultOrder: "ipv4first" | "ipv6first" | "verbatim";
+
+	/**
+	 * Enable TWisp experimental protocol.
+	 */
 	enableTwisp: boolean;
+
+	/**
+	 * Enable Wisp v2 protocol support.
+	 */
 	enableV2: boolean;
+
+	/**
+	 * Message of the day sent during handshake.
+	 */
 	motd: string;
+
+	/**
+	 * Enable password authentication.
+	 */
 	passwordAuth: boolean;
+
+	/**
+	 * Require password authentication for all clients.
+	 */
 	passwordAuthRequired: boolean;
+
+	/**
+	 * Username/password credential map.
+	 */
 	passwordUsers: Map<string, string>;
-	certAuth: boolean;
-	certAuthRequired: boolean;
-	certAuthPublicKeys: string[];
-	enableStreamConfirm: boolean;
-	maxConnectsPerSecond: number;
-	bandwidthLimitKbps: number;
-	connectionsLimitPerIP: number;
-	connectionWindowSeconds: number;
+
+	/**
+	 * Parse reverse-proxy real IP headers.
+	 */
 	parseRealIP: boolean;
-	parseRealIPFrom: string[];
-	maxMessageSize: number;
-	staticDir: string;
+
+	/**
+	 * HTTP response returned for non-WebSocket requests.
+	 */
 	nonWSResponse: string;
-	allowedOrigins: string[];
-	writeTimeoutSeconds: number;
-	frameReadTimeoutSeconds: number;
-	logLevel: "debug" | "info" | "warn" | "error";
-	banEnabled: boolean;
-	banDurationSeconds: number;
-	banMaxStrikes: number;
-	banEscalationMultiplier: number;
-	maxHandshakeFailures: number;
-	maxPacketRate: number;
-	maxConnectionLifetimeSeconds: number;
-	maxStreamsPerConnection: number;
-	maxConnectionsPerIP: number;
-	globalMaxConnections: number;
-	writeQueueSize: number;
-	maxInboundBytesPerSecond: number;
-}
+
+	/**
+	 * Logging verbosity level.
+	 */
+	logLevel: "debug" | "warn" | "error" | "info";
+
+	/**
+	 * Optional upstream proxy URL (SOCKS/HTTP).
+	 */
+	proxy: string;
+
+	/**
+	 * Maximum WebSocket message size in bytes.
+	 */
+	maxMessageSize: number;
+
+	/**
+	 * Directory for static file serving.
+	 */
+	staticDir: string;
+
+	/**
+	 * Bandwidth limit per IP in Kbps.
+	 */
+	bandwidthLimitKbps: number;
+
+	/**
+	 * Connection rate limit per IP.
+	 */
+	connectionsLimitPerIP: number;
+
+	/**
+	 * Connection rate limit window in seconds.
+	 */
+	connectionWindowSeconds: number;
+};
 
 const defaultConfig: MrrowispConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
 

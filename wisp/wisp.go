@@ -1,7 +1,6 @@
 package wisp
 
 import (
-	"crypto/ed25519"
 	"net"
 	"net/http"
 	"strings"
@@ -13,191 +12,22 @@ import (
 	"github.com/lxzan/gws"
 )
 
-type PortRange struct {
-	Min int
-	Max int
-}
-
-func (r PortRange) Contains(p int) bool {
-	return p >= r.Min && p <= r.Max
-}
-
-type Config struct {
-	AllowTCP         bool
-	AllowUDP         bool
-	AllowDirectIP    bool
-	AllowPrivateIPs  bool
-	AllowLoopbackIPs bool
-
-	TcpBufferSize         int
-	BufferRemainingLength uint32
-	TcpNoDelay            bool
-	WebsocketTcpNoDelay   bool
-
-	StreamLimitPerHost int
-	StreamLimitTotal   int
-
-	Blacklist struct {
-		Hostnames map[string]struct{}
-		Ports     []PortRange
-	}
-	Whitelist struct {
-		Hostnames map[string]struct{}
-		Ports     []PortRange
-	}
-
-	Proxy                      string
-	WebsocketPermessageDeflate bool
-
-	DnsServers     []string
-	DnsTTLSeconds  int
-	DnsMethod      string
-	DnsResultOrder string
-
-	EnableTwisp bool
-
-	EnableV2             bool
-	Motd                 string
-	PasswordAuth         bool
-	PasswordAuthRequired bool
-	PasswordUsers        map[string]string
-	CertAuth             bool
-	CertAuthRequired     bool
-	CertAuthPublicKeys   []ed25519.PublicKey
-	EnableStreamConfirm  bool
-	MaxConnectsPerSecond int
-
-	BandwidthLimitKbps      int
-	ConnectionsLimitPerIP   int
-	ConnectionWindowSeconds int
-	ParseRealIP             bool
-	ParseRealIPFrom         map[string]struct{}
-
-	MaxMessageSize int
-	AllowedOrigins []string
-	WriteTimeout   time.Duration
-	FrameReadTimeout time.Duration
-
-	NonWSResponse string
-	LogLevel      string
-
-	Logger            Logger
-	BandwidthLimiter  *protection.BandwidthLimiter
-	ConnectionLimiter *protection.ConnectionLimiter
-	ConnectionCounter *protection.ConnectionCounter
-	StreamLimiter     *protection.StreamLimiter
-	FramePool         *sync.Pool
-
-	DNSCache    *DNSCache
-	ReadBufPool sync.Pool
-	Dialer      net.Dialer
-
-	BanEnabled             bool
-	BanDuration            time.Duration
-	BanMaxStrikes          int
-	BanEscalationMultiplier int
-	BanList                *protection.BanList
-	MaxHandshakeFailures   int
-
-	MaxPacketRate           int
-	MaxConnectionLifetime   time.Duration
-	MaxStreamsPerConnection int
-	MaxConnectionsPerIP     int
-	GlobalMaxConnections    int
-	WriteQueueSize          int
-	MaxInboundBytesPerSecond int
-}
-
 const (
 	defaultStreamLimitPerHost    = 512
 	defaultStreamLimitTotal      = 16384
+	defaultMaxConnectsPerSecond  = 20
 	defaultConnectionsLimitPerIP = 120
+	defaultHandshakeFailures     = 10
 )
 
-func DefaultConfig() *Config {
-	return &Config{
-		AllowTCP:                true,
-		AllowUDP:                true,
-		AllowDirectIP:           false,
-		AllowPrivateIPs:         false,
-		AllowLoopbackIPs:        false,
-		TcpBufferSize:           32768,
-		BufferRemainingLength:   65536,
-		TcpNoDelay:              true,
-		WebsocketTcpNoDelay:     true,
-		StreamLimitPerHost:      defaultStreamLimitPerHost,
-		StreamLimitTotal:        defaultStreamLimitTotal,
-		MaxConnectsPerSecond:    maxConnectsPerSecond,
-		PasswordUsers:           make(map[string]string),
-		DnsTTLSeconds:           120,
-		DnsMethod:               "lookup",
-		DnsResultOrder:          "verbatim",
-		ConnectionWindowSeconds: 1,
-		ConnectionsLimitPerIP:   defaultConnectionsLimitPerIP,
-		MaxHandshakeFailures:    10,
-		BanEnabled:              true,
-		BanDuration:             time.Hour,
-		BanMaxStrikes:           10,
-		BanEscalationMultiplier: 0,
-		WriteTimeout:            15 * time.Second,
-		FrameReadTimeout:        30 * time.Second,
-		MaxPacketRate:           500,
-		MaxConnectionLifetime:   0,
-		MaxStreamsPerConnection: 0,
-		MaxConnectionsPerIP:     0,
-		GlobalMaxConnections:    0,
-		WriteQueueSize:          4096,
-		MaxInboundBytesPerSecond: 0,
-	}
-}
-
-func (c *Config) InitResolver() {
-	c.DNSCache = NewDNSCache(
+func (cfg *Config) InitResolver() {
+	cfg.DNSCache = NewDNSCache(
 		DNSCacheConfig{
-			Servers:     c.DnsServers,
-			TTLSeconds:  c.DnsTTLSeconds,
-			Method:      c.DnsMethod,
-			ResultOrder: c.DnsResultOrder,
+			Servers:     cfg.DnsServers,
+			Method:      cfg.DnsMethod,
+			ResultOrder: cfg.DnsResultOrder,
 		})
-	if c.LogLevel == "" {
-		c.LogLevel = "info"
-	}
-	if c.Logger == nil {
-		c.Logger = newLogger(c.LogLevel)
-	}
-	if c.BandwidthLimitKbps > 0 {
-		c.BandwidthLimiter = protection.NewBandwidthLimiter(c.BandwidthLimitKbps, time.Duration(c.ConnectionWindowSeconds)*time.Second)
-	}
-	if c.ConnectionsLimitPerIP > 0 {
-		c.ConnectionLimiter = protection.NewConnectionLimiter(c.ConnectionsLimitPerIP, time.Duration(c.ConnectionWindowSeconds)*time.Second)
-	}
-	if c.StreamLimiter == nil {
-		c.StreamLimiter = protection.NewStreamLimiter()
-	}
-	if c.ParseRealIPFrom == nil {
-		c.ParseRealIPFrom = make(map[string]struct{})
-	}
-	if c.MaxConnectionsPerIP > 0 || c.GlobalMaxConnections > 0 {
-		c.ConnectionCounter = protection.NewConnectionCounter()
-	}
-	if c.BanEnabled {
-		c.BanList = protection.NewBanListEscalated(c.BanDuration, c.BanMaxStrikes, c.BanEscalationMultiplier)
-	}
-	if c.FramePool == nil {
-		readBufSize := 15 + c.TcpBufferSize
-		c.FramePool = &sync.Pool{
-			New: func() any {
-				buf := make([]byte, readBufSize)
-				return buf
-			},
-		}
-	}
-	if c.WriteTimeout < 0 {
-		c.WriteTimeout = 0
-	}
-	if c.FrameReadTimeout < 0 {
-		c.FrameReadTimeout = 0
-	}
+	cfg.Logger = newLogger(cfg.LogLevel)
 }
 
 type upgradeHandler struct {
@@ -208,7 +38,7 @@ func CreateWispHandler(config *Config) http.HandlerFunc {
 	config.InitResolver()
 
 	readBufSize := 15 + config.TcpBufferSize
-	config.ReadBufPool = sync.Pool{
+	config.ReadBufPool = &sync.Pool{
 		New: func() any {
 			buf := make([]byte, readBufSize)
 			return &buf
@@ -292,9 +122,6 @@ func CreateWispHandler(config *Config) http.HandlerFunc {
 		netConn := wsConn.NetConn()
 
 		if tc, ok := netConn.(*net.TCPConn); ok {
-			if config.WebsocketTcpNoDelay {
-				tc.SetNoDelay(true)
-			}
 			tc.SetReadBuffer(1 << 20)
 			tc.SetWriteBuffer(1 << 20)
 		}
@@ -340,25 +167,9 @@ func CreateWispHandler(config *Config) http.HandlerFunc {
 	}
 }
 
-func (c *Config) requiresV2() bool {
-	if c == nil {
+func (cfg *Config) requiresV2() bool {
+	if cfg == nil {
 		return false
 	}
-	return c.PasswordAuthRequired || c.CertAuthRequired || c.EnableTwisp
-}
-
-func originAllowed(r *http.Request, allowedOrigins []string) bool {
-	if len(allowedOrigins) == 0 {
-		return true
-	}
-	origin := strings.TrimSpace(r.Header.Get("Origin"))
-	if origin == "" {
-		return false
-	}
-	for _, allowed := range allowedOrigins {
-		if origin == strings.TrimSpace(allowed) {
-			return true
-		}
-	}
-	return false
+	return cfg.PasswordAuthRequired || cfg.EnableTwisp
 }

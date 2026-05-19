@@ -32,7 +32,6 @@ func (c *wispConnection) readLoop() {
 
 		if rsv != 0 || !masked || !fin {
 			c.sendWSClose(1002)
-			c.noteHandshakeFailure()
 			return
 		}
 
@@ -55,7 +54,6 @@ func (c *wispConnection) readLoop() {
 		isControlFrame := opcode >= 0x8
 		if isControlFrame && payloadLen > 125 {
 			c.sendWSClose(1002)
-			c.noteHandshakeFailure()
 			return
 		}
 
@@ -68,7 +66,6 @@ func (c *wispConnection) readLoop() {
 
 		if payloadLen > c.maxPayloadSize() {
 			c.sendWSClose(1009)
-			c.noteHandshakeFailure()
 			return
 		}
 
@@ -114,7 +111,6 @@ func (c *wispConnection) readLoop() {
 
 		default:
 			if opcode != 0x0 {
-				c.noteHandshakeFailure()
 			}
 			continue
 		}

@@ -1,9 +1,6 @@
 package wisp
 
 import (
-	"crypto/ed25519"
-	"crypto/rand"
-	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/binary"
 	"errors"
@@ -42,29 +39,8 @@ func (c *wispConnection) buildServerInfoPacket() []byte {
 		extensions = addExtension(extensions, extensionPasswordAuth, meta[:])
 	}
 
-	if c.config.CertAuth && len(c.config.CertAuthPublicKeys) > 0 {
-		challenge := make([]byte, 64)
-		if _, err := rand.Read(challenge); err != nil {
-			c.config.Logger.Warn("certificate auth challenge: rand.Read failed", "error", err)
-		} else {
-			c.v2Challenge = challenge
-
-			meta := make([]byte, 2+len(challenge))
-			if c.config.CertAuthRequired {
-				meta[0] = 1
-			}
-			meta[1] = sigEd25519
-			copy(meta[2:], challenge)
-			extensions = addExtension(extensions, extensionCertificateAuth, meta)
-		}
-	}
-
 	if c.config.Motd != "" {
 		extensions = addExtension(extensions, extensionMotd, []byte(c.config.Motd))
-	}
-
-	if c.config.EnableStreamConfirm {
-		extensions = addExtension(extensions, extensionStreamConfirm, nil)
 	}
 
 	payload := make([]byte, 5+2+len(extensions))
@@ -176,7 +152,7 @@ func (c *wispConnection) handleInfo(streamId uint32, payload []byte) {
 		return
 	}
 
-	authRequired := c.config.PasswordAuthRequired || c.config.CertAuthRequired
+	authRequired := c.config.PasswordAuthRequired
 	authPassed := false
 
 	if c.config.PasswordAuth && clientExts.passwordUsername != "" {
@@ -193,16 +169,6 @@ func (c *wispConnection) handleInfo(streamId uint32, payload []byte) {
 		}
 	}
 
-	if c.config.CertAuth && len(clientExts.certificateSig) > 0 && c.v2Challenge != nil {
-		if c.verifyCertificate(clientExts) {
-			authPassed = true
-		} else {
-			c.sendClosePacket(0, closeReasonAuthBadSignature)
-			c.close()
-			return
-		}
-	}
-
 	if authRequired && !authPassed {
 		c.sendClosePacket(0, closeReasonAuthRequired)
 		c.close()
@@ -210,7 +176,7 @@ func (c *wispConnection) handleInfo(streamId uint32, payload []byte) {
 	}
 
 	c.authenticated.Store(authPassed)
-	c.streamConfirm = c.config.EnableStreamConfirm && clientExts.streamConfirm
+	c.streamConfirm = clientExts.streamConfirm
 
 	c.sendPacket(0, c.config.BufferRemainingLength)
 
@@ -218,24 +184,6 @@ func (c *wispConnection) handleInfo(streamId uint32, payload []byte) {
 	close(c.handshakeDone)
 	c.handshakeDone = nil
 }
-
-func (c *wispConnection) verifyCertificate(exts *extensions) bool {
-	if exts.certificateSelected&sigEd25519 == 0 {
-		return false
-	}
-
-	for _, pubKey := range c.config.CertAuthPublicKeys {
-		hash := sha256.Sum256([]byte(pubKey))
-		if hash == exts.certificatePubkeyHash {
-			if ed25519.Verify(pubKey, c.v2Challenge, exts.certificateSig) {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
 func (c *wispConnection) sendRawFrame(packet []byte) {
 	totalLen := len(packet)
 	var frame []byte

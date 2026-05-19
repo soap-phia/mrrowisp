@@ -53,18 +53,16 @@ const maxConcurrentDials = 50
 const maxPendingStreamBytes = 16 * 1024 * 1024
 
 type wispConnection struct {
-	netConn           net.Conn
-	writeCh           chan writeReq
-	streams           sync.Map
-	cachedStreamId    uint32
-	cachedStream      unsafe.Pointer
-	isClosed          atomic.Bool
-	shutdownOnce      sync.Once
-	config            *Config
-	twispStreams      *twispRegistry
-	connectLimiter    *connectRateLimiter
-	remoteIP          string
-	handshakeFailures int
+	netConn        net.Conn
+	writeCh        chan writeReq
+	streams        sync.Map
+	cachedStreamId uint32
+	cachedStream   unsafe.Pointer
+	isClosed       atomic.Bool
+	shutdownOnce   sync.Once
+	config         *Config
+	twispStreams   *twispRegistry
+	remoteIP       string
 
 	isV2          bool
 	handshakeDone chan struct{}
@@ -72,20 +70,10 @@ type wispConnection struct {
 	v2Challenge   []byte
 	authenticated atomic.Bool
 
-	dialSem        chan struct{}
-	closeCh        chan struct{}
-	createdAt      time.Time
-	packetLimiter  *prot.PacketRateLimiter
-	inboundLimiter *prot.InboundRateLimiter
-	streamCount    atomic.Int32
-}
-
-func (c *wispConnection) terminateNetwork() {
-	c.shutdownOnce.Do(func() {
-		c.isClosed.Store(true)
-		close(c.closeCh)
-		c.netConn.Close()
-	})
+	dialSem     chan struct{}
+	closeCh     chan struct{}
+	createdAt   time.Time
+	streamCount atomic.Int32
 }
 
 func (c *wispConnection) close() {
@@ -154,42 +142,17 @@ func (c *wispConnection) queueWritePooled(data []byte) {
 }
 
 func (c *wispConnection) releaseFrame(data []byte) {
-	if c.config == nil || c.config.FramePool == nil || len(data) == 0 {
+	if c.config == nil || len(data) == 0 {
 		return
 	}
-	if cap(data) < minFramePoolCap {
+	if cap(data) < 64*1024 {
 		return
 	}
 	buf := data
 	if len(buf) != cap(buf) {
 		buf = data[:cap(data)]
 	}
-	c.config.FramePool.Put(buf)
-}
-
-func (c *wispConnection) noteHandshakeFailure() {
-	if c.config == nil || c.config.MaxHandshakeFailures <= 0 {
-		return
-	}
-	c.handshakeFailures++
-	if c.handshakeFailures >= c.config.MaxHandshakeFailures {
-		c.config.Logger.Warn("handshake failures exceeded", "ip", c.remoteIP)
-		c.terminateNetwork()
-	}
-}
-
-func (c *wispConnection) lifetimeWatchdog() {
-	if c.config.MaxConnectionLifetime <= 0 {
-		return
-	}
-	timer := time.NewTimer(c.config.MaxConnectionLifetime)
-	defer timer.Stop()
-	select {
-	case <-timer.C:
-		c.config.Logger.Warn("connection lifetime exceeded", "ip", c.remoteIP)
-		c.terminateNetwork()
-	case <-c.closeCh:
-	}
+	// cfg.config.FramePool.Put(buf)
 }
 
 func (c *wispConnection) handlePacket(packetType uint8, streamId uint32, payload []byte) {
@@ -224,12 +187,11 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 	hostname := string(payload[3:])
 
 	c.config.Logger.Debug("creating stream", "ip", c.remoteIP, "streamId", streamId, "hostname", hostname, "port", port, "type", streamType)
-	action, normalizedHostname, reason := guard.allowConnect(c, streamType, hostname, port)
-	if action == connectBlocked {
-		c.sendClosePacket(streamId, reason)
-		return
-	}
-	if action == connectTwisp {
+	if streamType == streamTypeTerm {
+		if !c.config.EnableTwisp {
+			c.sendClosePacket(streamId, closeReasonBlocked)
+			return
+		}
 		go handleTwisp(c, streamId, hostname)
 		return
 	}
@@ -264,7 +226,7 @@ func (c *wispConnection) handleConnectPacket(streamId uint32, payload []byte) {
 	}
 
 	c.streamCount.Add(1)
-	go stream.handleConnect(streamType, port, normalizedHostname)
+	go stream.handleConnect(streamType, port, hostname)
 }
 
 func (c *wispConnection) handleDataPacket(streamId uint32, payload []byte) {
@@ -315,7 +277,7 @@ func (c *wispConnection) handleDataPacket(streamId uint32, payload []byte) {
 
 	stream.pendingMutex.Lock()
 	if !stream.connReadyDone.Load() {
-		if stream.pendingBytes+len(payload) > maxPendingStreamBytes {
+		if stream.pendingBytes+len(payload) > 16*1024*1024 {
 			stream.pendingMutex.Unlock()
 			stream.close(closeReasonThrottled)
 			return
@@ -421,10 +383,7 @@ func (c *wispConnection) deleteWispStream(streamId uint32) {
 }
 
 func (c *wispConnection) deleteAllWispStreams() {
-	c.terminateNetwork()
-	if c.config.ConnectionCounter != nil {
-		c.config.ConnectionCounter.Remove(c.remoteIP)
-	}
+	c.close()
 	c.config.Logger.Info("connection closed", "ip", c.remoteIP)
 	c.streams.Range(func(key, value any) bool {
 		stream := value.(*wispStream)

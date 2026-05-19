@@ -9,8 +9,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	prot "mrrowisp/wisp/protection"
-
 	"golang.org/x/net/proxy"
 )
 
@@ -35,15 +33,19 @@ type wispStream struct {
 
 const dnsLookupTimeout = 10 * time.Second
 
+func NormalizeTargetHostname(host string) string {
+	host = strings.TrimSpace(strings.ToLower(host))
+	host = strings.TrimSuffix(host, ".")
+	return host
+}
+
+const dnsLookupTimeout = 10 * time.Second
+
 func (s *wispStream) handleConnect(streamType uint8, port string, hostname string) {
 	defer s.signalConnReady()
 
 	cfg := s.wispConn.config
-	s.hostname = prot.NormalizeTargetHostname(hostname)
-	if s.hostname == "" {
-		s.close(closeReasonInvalidInfo)
-		return
-	}
+	s.hostname = NormalizeTargetHostname(hostname)
 
 	guard := newProtection(cfg)
 
@@ -104,7 +106,6 @@ func (s *wispStream) handleConnect(streamType uint8, port string, hostname strin
 			proxyURL = strings.Replace(proxyURL, "socks4a://", "socks4://", 1)
 			dialer, proxyErr := proxy.SOCKS5("tcp", stripScheme(proxyURL), nil, proxy.Direct)
 			if proxyErr != nil {
-				<-s.wispConn.dialSem
 				cfg.Logger.Warn("proxy dialer creation failed", "ip", s.wispConn.remoteIP, "error", proxyErr)
 				s.close(closeReasonNetworkError)
 				return

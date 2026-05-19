@@ -1,12 +1,13 @@
 import chalk from "chalk";
 
-export type LogLevel = "debug" | "info" | "warn" | "error";
+export type LogLevel = "debug" | "warn" | "error" | "info" | "none";
 
 const levelPriority: Record<LogLevel, number> = {
 	debug: 0,
 	warn: 1,
 	error: 2,
 	info: 3,
+	none: 4,
 };
 
 class Logger {
