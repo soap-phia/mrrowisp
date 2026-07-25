@@ -46,6 +46,11 @@ func (c *wispConnection) runWriter() {
 			return
 		}
 		batch, c.pendingWrites = c.pendingWrites, batch[:0]
+		var batchBytes int
+		for _, r := range batch {
+			batchBytes += len(r.data)
+		}
+		c.pendingBytes -= batchBytes
 		c.pendingMutex.Unlock()
 
 		if cap(bufs) < len(batch) {
@@ -89,7 +94,16 @@ func (c *wispConnection) submitWrite(req writeReq) {
 		return
 	}
 	c.pendingMutex.Lock()
+	if c.pendingBytes+len(req.data) > maxPendingQueueBytes {
+		c.pendingMutex.Unlock()
+		if req.buf != nil {
+			c.config.ReadBufPool.Put(req.buf)
+		}
+		c.close()
+		return
+	}
 	c.pendingWrites = append(c.pendingWrites, req)
+	c.pendingBytes += len(req.data)
 	if c.writeActive {
 		c.pendingMutex.Unlock()
 		return

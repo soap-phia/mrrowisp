@@ -166,6 +166,7 @@ type wispConnection struct {
 
 	pendingMutex  sync.Mutex
 	pendingWrites []writeReq
+	pendingBytes   int
 	writeActive   bool
 
 	isV2          bool
@@ -205,10 +206,11 @@ type wispStream struct {
 	pendingData  [][]byte
 	pendingBytes int
 
-	ingressActive  atomic.Bool
-	pendingIngMu   sync.Mutex
-	pendingIngress []ingressJob
-	ingressWriting bool
+	ingressActive   atomic.Bool
+	pendingIngMu    sync.Mutex
+	pendingIngress  []ingressJob
+	pendingIngBytes int
+	ingressWriting  bool
 }
 
 type ingressJob struct {

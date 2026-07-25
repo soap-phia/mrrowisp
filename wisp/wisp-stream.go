@@ -311,6 +311,11 @@ func (s *wispStream) runIngressWriter() {
 			return
 		}
 		batch, s.pendingIngress = s.pendingIngress, batch[:0]
+		var batchBytes int
+		for _, j := range batch {
+			batchBytes += len(j.payload)
+		}
+		s.pendingIngBytes -= batchBytes
 		s.pendingIngMu.Unlock()
 
 		if cap(bufs) < len(batch) {
@@ -360,7 +365,14 @@ func (s *wispStream) submitIngress(job ingressJob) bool {
 		return false
 	}
 	s.pendingIngMu.Lock()
+	if s.pendingIngBytes+len(job.payload) > maxPendingQueueBytes {
+		s.pendingIngMu.Unlock()
+		releaseIngressJob(job)
+		s.close(closeReasonThrottled)
+		return false
+	}
 	s.pendingIngress = append(s.pendingIngress, job)
+	s.pendingIngBytes += len(job.payload)
 	if s.ingressWriting {
 		s.pendingIngMu.Unlock()
 		return true
